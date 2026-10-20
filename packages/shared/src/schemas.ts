@@ -105,6 +105,8 @@ export const WatchlistItemSchema = z.object({
   assetClass: AssetClassSchema,
   currency: CurrencySchema,
   starredAt: z.iso.datetime(),
+  /** Set for starred mutual funds, which are identified by AMFI scheme code rather than a ticker. */
+  schemeCode: z.string().nullable(),
 });
 export type WatchlistItem = z.infer<typeof WatchlistItemSchema>;
 
@@ -114,3 +116,99 @@ export const StarRequestSchema = z.object({
   type: SymbolMatchSchema.shape.type.optional(),
 });
 export type StarRequest = z.infer<typeof StarRequestSchema>;
+
+// Analytics and screening. Statistics are plain numbers (percentages and
+// ratios, not money); null means the history is too short to measure it.
+
+const Stat = z.number().nullable();
+
+export const PERIODS = ['1d', '1w', '1m', '3m', '6m', 'ytd', '1y', '3y', '5y'] as const;
+export const PeriodSchema = z.enum(PERIODS);
+export type Period = z.infer<typeof PeriodSchema>;
+
+/** Periods whose returns are annualized (CAGR) rather than totals. */
+export const ANNUALIZED_PERIODS: readonly Period[] = ['3y', '5y'];
+
+export const SORT_KEYS = ['return', 'risk_adjusted', 'volatility', 'drawdown', 'consistency'] as const;
+export const SortKeySchema = z.enum(SORT_KEYS);
+export type SortKey = z.infer<typeof SortKeySchema>;
+
+export const MetricsSchema = z.object({
+  asOf: z.string(),
+  returns: z.record(PeriodSchema, Stat),
+  volatility1y: Stat,
+  maxDrawdown1y: Stat,
+  /** 1-year return divided by 1-year volatility: return per unit of risk. */
+  riskAdjusted1y: Stat,
+  upMonths: z.number().int(),
+  months: z.number().int(),
+});
+export type Metrics = z.infer<typeof MetricsSchema>;
+
+export const UniverseSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  group: z.string(),
+  region: z.enum(['IN', 'US']),
+  count: z.number().int(),
+});
+export type Universe = z.infer<typeof UniverseSchema>;
+
+export const SymbolStatsSchema = z.object({
+  symbol: z.string(),
+  name: z.string(),
+  exchange: z.string(),
+  currency: CurrencySchema,
+  sector: z.string(),
+  price: DecimalStringSchema,
+  high52w: Stat,
+  low52w: Stat,
+  fromHigh52w: Stat,
+  metrics: MetricsSchema,
+});
+export type SymbolStats = z.infer<typeof SymbolStatsSchema>;
+
+export const ScreenRowSchema = SymbolStatsSchema.extend({ changePercent: Stat });
+export type ScreenRow = z.infer<typeof ScreenRowSchema>;
+
+const screenShape = {
+  period: PeriodSchema,
+  sort: SortKeySchema,
+  order: z.enum(['best', 'worst']),
+  total: z.number().int(),
+  unavailable: z.record(z.string(), z.string()),
+};
+
+export const ScreenResultSchema = z.object({
+  ...screenShape,
+  universe: UniverseSchema.nullable(),
+  rows: z.array(ScreenRowSchema),
+});
+export type ScreenResult = z.infer<typeof ScreenResultSchema>;
+
+export const FundCategorySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  count: z.number().int(),
+});
+export type FundCategory = z.infer<typeof FundCategorySchema>;
+
+export const FundStatsSchema = z.object({
+  schemeCode: z.string(),
+  name: z.string(),
+  fundHouse: z.string(),
+  category: z.string(),
+  nav: DecimalStringSchema,
+  navDate: z.iso.date(),
+  metrics: MetricsSchema,
+});
+export type FundStats = z.infer<typeof FundStatsSchema>;
+
+export const FundScreenResultSchema = z.object({
+  ...screenShape,
+  category: FundCategorySchema.nullable(),
+  rows: z.array(FundStatsSchema),
+});
+export type FundScreenResult = z.infer<typeof FundScreenResultSchema>;
