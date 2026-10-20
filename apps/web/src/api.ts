@@ -49,3 +49,12 @@ export async function postJson<S extends z.ZodType>(path: string, body: unknown,
   });
   return schema.parse(result);
 }
+
+export async function patchJson<S extends z.ZodType>(path: string, body: unknown, schema: S): Promise<z.infer<S>> {
+  const result = await request(path, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return schema.parse(result);
+}
