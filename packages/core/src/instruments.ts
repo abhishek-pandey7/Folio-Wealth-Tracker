@@ -1,15 +1,8 @@
-import {
-  type AssetClass,
-  FundSchema,
-  type InstrumentRef,
-  QuoteSchema,
-  type SymbolMatch,
-  SymbolSchema,
-} from '@folio/shared';
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
-import { type Database, DRIZZLE } from '../database/database.module.js';
-import { instruments } from '../database/schema.js';
-import { MarketGatewayClient } from '../market/market-gateway.client.js';
+import { type AssetClass, type InstrumentRef, type SymbolMatch, SymbolSchema } from '@folio/shared';
+import type { Database } from './database.js';
+import { BadRequestError } from './errors.js';
+import type { MarketData } from './market.js';
+import { instruments } from './schema.js';
 
 const ASSET_CLASS_BY_TYPE: Record<SymbolMatch['type'], AssetClass> = {
   equity: 'equity',
@@ -36,11 +29,10 @@ export function schemeCodeOf(symbol: string): string | null {
  * Turns what a user picked (a ticker or a fund) into a stored instrument.
  * Existence and currency always come from market data, never from the client.
  */
-@Injectable()
 export class InstrumentsService {
   constructor(
-    @Inject(DRIZZLE) private readonly db: Database,
-    private readonly gateway: MarketGatewayClient,
+    private readonly db: Database,
+    private readonly market: MarketData,
   ) {}
 
   async resolve(ref: InstrumentRef, db: DbOrTx = this.db): Promise<Instrument> {
@@ -53,7 +45,7 @@ export class InstrumentsService {
     db: DbOrTx = this.db,
   ): Promise<Instrument> {
     const symbol = parseSymbol(rawSymbol);
-    const quote = await this.gateway.get(`/v1/quotes/${encodeURIComponent(symbol)}`, QuoteSchema);
+    const quote = await this.market.quote(symbol);
     return this.upsert(
       db,
       {
@@ -68,7 +60,7 @@ export class InstrumentsService {
 
   async resolveFund(rawCode: string, db: DbOrTx = this.db): Promise<Instrument> {
     const code = parseSchemeCode(rawCode);
-    const fund = await this.gateway.get(`/v1/funds/${code}`, FundSchema);
+    const fund = await this.market.fund(code);
     return this.upsert(
       db,
       { symbol: `${FUND_PREFIX}${code}`, name: fund.name, assetClass: 'mutual_fund', currency: 'INR' },
@@ -96,7 +88,7 @@ export class InstrumentsService {
 export function parseSymbol(raw: string): string {
   const parsed = SymbolSchema.safeParse(raw);
   if (!parsed.success) {
-    throw new BadRequestException(`Invalid ticker symbol: ${raw}`);
+    throw new BadRequestError(`Invalid ticker symbol: ${raw}`);
   }
   return parsed.data;
 }
@@ -104,7 +96,7 @@ export function parseSymbol(raw: string): string {
 export function parseSchemeCode(raw: string): string {
   const code = raw.trim();
   if (!SCHEME_CODE.test(code)) {
-    throw new BadRequestException(`Invalid mutual fund scheme code: ${raw}`);
+    throw new BadRequestError(`Invalid mutual fund scheme code: ${raw}`);
   }
   return code;
 }

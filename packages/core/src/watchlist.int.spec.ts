@@ -1,15 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import type { Quote } from '@folio/shared';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { eq, inArray } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import type { Database } from '../database/database.module.js';
-import * as schema from '../database/schema.js';
-import { InstrumentsService } from '../instruments/instruments.service.js';
-import type { MarketGatewayClient } from '../market/market-gateway.client.js';
-import { WatchlistService } from './watchlist.service.js';
+import type { Database } from './database.js';
+import { BadRequestError, NotFoundError } from './errors.js';
+import { InstrumentsService } from './instruments.js';
+import * as schema from './schema.js';
+import { marketFromRoutes } from './testing/market-from-routes.js';
+import { WatchlistService } from './watchlist.js';
 
 // Integration test: runs against a real, migrated Postgres when DATABASE_URL is set (CI provides one).
 const databaseUrl = process.env.DATABASE_URL;
@@ -36,7 +36,7 @@ describe.skipIf(!databaseUrl)('WatchlistService (Postgres)', () => {
     const symbol = decodeURIComponent(path.split('/').at(-1) ?? '');
     if (path.startsWith('/v1/funds/')) {
       if (symbol === '99999999') {
-        throw new NotFoundException('not found');
+        throw new NotFoundError('not found');
       }
       return {
         schemeCode: symbol,
@@ -50,7 +50,7 @@ describe.skipIf(!databaseUrl)('WatchlistService (Postgres)', () => {
       };
     }
     if (symbol === 'NOPE.NS') {
-      throw new NotFoundException('not found');
+      throw new NotFoundError('not found');
     }
     return quote(symbol);
   });
@@ -73,10 +73,7 @@ describe.skipIf(!databaseUrl)('WatchlistService (Postgres)', () => {
   beforeAll(() => {
     pool = new Pool({ connectionString: databaseUrl });
     db = drizzle({ client: pool, schema });
-    service = new WatchlistService(
-      db,
-      new InstrumentsService(db, { get: gatewayGet } as unknown as MarketGatewayClient),
-    );
+    service = new WatchlistService(db, new InstrumentsService(db, marketFromRoutes(gatewayGet)));
   });
 
   afterAll(async () => {
@@ -141,7 +138,7 @@ describe.skipIf(!databaseUrl)('WatchlistService (Postgres)', () => {
   it('rejects symbols the gateway cannot price, without writing anything', async () => {
     const userId = await createUser();
 
-    await expect(service.star(userId, 'NOPE.NS', {})).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.star(userId, 'NOPE.NS', {})).rejects.toBeInstanceOf(NotFoundError);
     const rows = await db.select().from(schema.instruments).where(eq(schema.instruments.symbol, 'NOPE.NS'));
     expect(rows).toEqual([]);
   });
@@ -169,7 +166,7 @@ describe.skipIf(!databaseUrl)('WatchlistService (Postgres)', () => {
   it('rejects malformed and unknown scheme codes', async () => {
     const userId = await createUser();
 
-    await expect(service.starFund(userId, 'abc')).rejects.toBeInstanceOf(BadRequestException);
-    await expect(service.starFund(userId, '99999999')).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.starFund(userId, 'abc')).rejects.toBeInstanceOf(BadRequestError);
+    await expect(service.starFund(userId, '99999999')).rejects.toBeInstanceOf(NotFoundError);
   });
 });

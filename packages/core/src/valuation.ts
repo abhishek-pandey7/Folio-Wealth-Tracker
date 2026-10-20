@@ -3,23 +3,18 @@ import {
   type CashFlow,
   cashFlowOf,
   Decimal,
-  FundScreenResultSchema,
-  FxRateSchema,
   type Holding,
   type LedgerEntry,
   type PortfolioSummary,
   replay,
-  ScreenResultSchema,
   xirr,
 } from '@folio/shared';
-import { Inject, Injectable, Logger } from '@nestjs/common';
 import { and, asc, eq } from 'drizzle-orm';
-import { type Database, DRIZZLE } from '../database/database.module.js';
-import { instruments, portfolios, transactions } from '../database/schema.js';
-import { type Instrument, schemeCodeOf } from '../instruments/instruments.service.js';
-import { MarketGatewayClient } from '../market/market-gateway.client.js';
-
-const BATCH = 50; // the gateway's per-screen limit
+import type { Database } from './database.js';
+import { type Instrument, schemeCodeOf } from './instruments.js';
+import { consoleLogger, type Logger } from './logger.js';
+import type { MarketData } from './market.js';
+import { instruments, portfolios, transactions } from './schema.js';
 
 const ASSET_CLASS_LABELS: Record<string, string> = {
   equity: 'Stocks',
@@ -54,12 +49,6 @@ const pctOf = (part: Decimal, whole: Decimal) => (whole.isZero() ? null : part.d
 const round2 = (n: number | null) => (n === null ? null : Math.round(n * 100) / 100);
 const today = () => new Date().toISOString().slice(0, 10);
 
-function chunk<T>(items: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
-  return out;
-}
-
 /**
  * Values the portfolio: replays each account's ledger, merges holdings of the
  * same instrument across accounts, prices them live and converts to rupees.
@@ -67,13 +56,11 @@ function chunk<T>(items: T[], size: number): T[][] {
  * Known simplification: USD amounts convert at today's USD/INR rate, so the
  * rupee cost of a US holding moves with the exchange rate.
  */
-@Injectable()
 export class ValuationService {
-  private readonly logger = new Logger(ValuationService.name);
-
   constructor(
-    @Inject(DRIZZLE) private readonly db: Database,
-    private readonly gateway: MarketGatewayClient,
+    private readonly db: Database,
+    private readonly market: MarketData,
+    private readonly logger: Logger = consoleLogger,
   ) {}
 
   async summary(userId: string, accountId?: string): Promise<PortfolioSummary> {
@@ -225,52 +212,44 @@ export class ValuationService {
     };
   }
 
-  /** Live prices from the gateway: stocks via the screener (price, today's move, sector), funds via the fund screener. */
+  /** Live prices: stocks with today's move and sector, funds with their latest NAV. */
   private async prices(list: Instrument[]): Promise<Map<string, LivePrice>> {
     const out = new Map<string, LivePrice>();
     const symbols = list.filter((i) => !schemeCodeOf(i.symbol)).map((i) => i.symbol);
     const codes = list.flatMap((i) => schemeCodeOf(i.symbol) ?? []);
 
-    const stockBatches = chunk(symbols, BATCH).map(async (batch) => {
-      const res = await this.gateway.get(
-        `/v1/screener?symbols=${encodeURIComponent(batch.join(','))}&period=1d&limit=100`,
-        ScreenResultSchema,
-        { timeoutMs: 45_000 },
-      );
-      for (const row of res.rows) {
+    // A pricing outage must not hide the portfolio: unpriced holdings fall back to cost.
+    const [stocks, funds] = await Promise.allSettled([
+      symbols.length ? this.market.priceSymbols(symbols) : Promise.resolve([]),
+      codes.length ? this.market.priceFunds(codes) : Promise.resolve([]),
+    ]);
+    if (stocks.status === 'fulfilled') {
+      for (const row of stocks.value) {
         out.set(row.symbol, {
           price: new Decimal(row.price),
           dayChangePct: row.changePercent,
           sector: row.sector || null,
         });
       }
-    });
-    const fundBatches = chunk(codes, BATCH).map(async (batch) => {
-      const res = await this.gateway.get(
-        `/v1/funds/screener?codes=${encodeURIComponent(batch.join(','))}&period=1y&limit=100`,
-        FundScreenResultSchema,
-        { timeoutMs: 45_000 },
-      );
-      for (const row of res.rows) {
+    } else {
+      this.logger.warn(`Stock pricing failed: ${(stocks.reason as Error).message}`);
+    }
+    if (funds.status === 'fulfilled') {
+      for (const row of funds.value) {
         out.set(`MF-${row.schemeCode}`, {
           price: new Decimal(row.nav),
           dayChangePct: row.metrics.returns['1d'],
           sector: null,
         });
       }
-    });
-
-    // A pricing outage must not hide the portfolio: unpriced holdings fall back to cost.
-    const results = await Promise.allSettled([...stockBatches, ...fundBatches]);
-    for (const r of results) {
-      if (r.status === 'rejected') this.logger.warn(`Pricing batch failed: ${(r.reason as Error).message}`);
+    } else {
+      this.logger.warn(`Fund pricing failed: ${(funds.reason as Error).message}`);
     }
     return out;
   }
 
   private async usdInr(): Promise<Decimal> {
-    const fx = await this.gateway.get('/v1/fx?base=USD&quote=INR', FxRateSchema);
-    return new Decimal(fx.rate);
+    return new Decimal(await this.market.usdInr());
   }
 }
 

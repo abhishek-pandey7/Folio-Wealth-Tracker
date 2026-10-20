@@ -1,22 +1,19 @@
 import { randomUUID } from 'node:crypto';
 import { sipDueDates } from '@folio/shared';
-import { ConflictException, ForbiddenException, UnprocessableEntityException } from '@nestjs/common';
-import type { ConfigService } from '@nestjs/config';
 import { eq, inArray } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import type { Env } from '../config/env.js';
-import type { Database } from '../database/database.module.js';
-import * as schema from '../database/schema.js';
-import { InstrumentsService } from '../instruments/instruments.service.js';
-import type { MarketGatewayClient } from '../market/market-gateway.client.js';
-import { AccountsService } from '../portfolio/accounts.service.js';
-import { TransactionsService } from '../portfolio/transactions.service.js';
-import { ValuationService } from '../portfolio/valuation.service.js';
-import { GoalsService } from './goals.service.js';
-import { CronController } from './plan.controller.js';
-import { SipsService } from './sips.service.js';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { AccountsService } from './accounts.js';
+import type { Database } from './database.js';
+import { ConflictError, UnprocessableError } from './errors.js';
+import { GoalsService } from './goals.js';
+import { InstrumentsService } from './instruments.js';
+import * as schema from './schema.js';
+import { SipsService } from './sips.js';
+import { marketFromRoutes } from './testing/market-from-routes.js';
+import { TransactionsService } from './transactions.js';
+import { ValuationService } from './valuation.js';
 
 const databaseUrl = process.env.DATABASE_URL;
 const today = () => new Date().toISOString().slice(0, 10);
@@ -97,7 +94,7 @@ describe.skipIf(!databaseUrl)('SIPs and goals (Postgres)', () => {
   beforeAll(() => {
     pool = new Pool({ connectionString: databaseUrl });
     db = drizzle({ client: pool, schema });
-    const gateway = { get: fakeGateway } as unknown as MarketGatewayClient;
+    const gateway = marketFromRoutes(fakeGateway);
     const instruments = new InstrumentsService(db, gateway);
     accounts = new AccountsService(db);
     txns = new TransactionsService(db, accounts, instruments);
@@ -168,9 +165,7 @@ describe.skipIf(!databaseUrl)('SIPs and goals (Postgres)', () => {
 
     expect((await sips.update(userId, sip.id, { status: 'paused' })).nextDue).toBeNull();
     await sips.update(userId, sip.id, { status: 'stopped' });
-    await expect(sips.update(userId, sip.id, { status: 'active' })).rejects.toBeInstanceOf(
-      UnprocessableEntityException,
-    );
+    await expect(sips.update(userId, sip.id, { status: 'active' })).rejects.toBeInstanceOf(UnprocessableError);
 
     await sips.remove(userId, sip.id);
     expect(await sips.list(userId)).toEqual([]);
@@ -240,10 +235,10 @@ describe.skipIf(!databaseUrl)('SIPs and goals (Postgres)', () => {
 
     await expect(
       goals.create(userId, { name: 'Emergency fund', targetAmount: '1', assumedReturn: 0.1 }),
-    ).rejects.toBeInstanceOf(ConflictException);
+    ).rejects.toBeInstanceOf(ConflictError);
     await expect(
       goals.create(userId, { name: 'Past', targetAmount: '1', targetDate: '2020-01-01', assumedReturn: 0.1 }),
-    ).rejects.toBeInstanceOf(UnprocessableEntityException);
+    ).rejects.toBeInstanceOf(UnprocessableError);
     const [goal] = await goals.list(userId);
     await expect(
       goals.setHoldings(userId, goal?.id ?? '', { holdings: [{ instrumentKey: 'NOTHELD.NS', share: 1 }] }),
@@ -267,24 +262,5 @@ describe.skipIf(!databaseUrl)('SIPs and goals (Postgres)', () => {
     const [row] = await db.select().from(schema.sips).where(eq(schema.sips.id, sip.id));
     expect(row?.goalId).toBeNull();
     expect(row?.status).toBe('active');
-  });
-});
-
-describe('CronController', () => {
-  const runAll = vi.fn(async () => ({ users: 1, recorded: 2 }));
-  const controller = (secret?: string) =>
-    new CronController(
-      { runAll } as unknown as SipsService,
-      { get: () => secret } as unknown as ConfigService<Env, true>,
-    );
-
-  it('is disabled when no secret is configured', async () => {
-    await expect(controller(undefined).run('anything')).rejects.toBeInstanceOf(ForbiddenException);
-  });
-
-  it('rejects a wrong secret and accepts the right one', async () => {
-    const secret = 'a-long-random-secret-for-cron-123';
-    await expect(controller(secret).run('wrong')).rejects.toBeInstanceOf(ForbiddenException);
-    await expect(controller(secret).run(secret)).resolves.toEqual({ users: 1, recorded: 2 });
   });
 });

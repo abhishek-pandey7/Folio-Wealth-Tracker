@@ -1,20 +1,19 @@
 import {
   type CreateSip,
   Decimal,
-  NavOnSchema,
   nextSipDate,
   type Sip,
   sipDueDates,
   sipPurchase,
   type UpdateSip,
 } from '@folio/shared';
-import { Inject, Injectable, Logger, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import { and, asc, count, eq, inArray, sum } from 'drizzle-orm';
-import { z } from 'zod';
-import { type Database, DRIZZLE } from '../database/database.module.js';
-import { goals, instruments, portfolios, sips, transactions } from '../database/schema.js';
-import { InstrumentsService, schemeCodeOf } from '../instruments/instruments.service.js';
-import { MarketGatewayClient } from '../market/market-gateway.client.js';
+import type { Database } from './database.js';
+import { NotFoundError, UnprocessableError } from './errors.js';
+import { type InstrumentsService, schemeCodeOf } from './instruments.js';
+import { consoleLogger, type Logger } from './logger.js';
+import type { MarketData } from './market.js';
+import { goals, instruments, portfolios, sips, transactions } from './schema.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -28,15 +27,16 @@ const CATCH_UP_INTERVAL_MS = 10 * 60_000;
 
 type SipRow = typeof sips.$inferSelect;
 
-@Injectable()
 export class SipsService {
-  private readonly logger = new Logger(SipsService.name);
+  // Per process locally, per isolate on Workers. Either way only a throttle:
+  // recording is idempotent, so an extra catch-up costs time, never correctness.
   private readonly lastCatchUp = new Map<string, number>();
 
   constructor(
-    @Inject(DRIZZLE) private readonly db: Database,
+    private readonly db: Database,
     private readonly instruments: InstrumentsService,
-    private readonly gateway: MarketGatewayClient,
+    private readonly market: MarketData,
+    private readonly logger: Logger = consoleLogger,
   ) {}
 
   async list(userId: string): Promise<Sip[]> {
@@ -114,7 +114,7 @@ export class SipsService {
     const current = await this.owned(userId, id);
     if (input.goalId) await this.assertOwned(userId, current.portfolioId, input.goalId);
     if (current.status === 'stopped' && input.status && input.status !== 'stopped') {
-      throw new UnprocessableEntityException('A stopped SIP cannot restart. Start a new SIP instead.');
+      throw new UnprocessableError('A stopped SIP cannot restart. Start a new SIP instead.');
     }
 
     // When the schedule restarts. Recorded instalments are never rewritten (the unique index
@@ -189,7 +189,7 @@ export class SipsService {
 
     // One request covers up to 400 instalments (33 years of a monthly SIP).
     const dates = due.slice(-400);
-    const navs = await this.gateway.get(`/v1/funds/${code}/navs?on=${dates.join(',')}`, z.array(NavOnSchema));
+    const navs = await this.market.navsOn(code, dates);
 
     const values = navs.flatMap((n) => {
       const { units, price, residual } = sipPurchase(sip.amount, n.nav);
@@ -222,7 +222,7 @@ export class SipsService {
 
   private async get(userId: string, id: string): Promise<Sip> {
     const sip = (await this.list(userId)).find((s) => s.id === id);
-    if (!sip) throw new NotFoundException('SIP not found');
+    if (!sip) throw new NotFoundError('SIP not found');
     return sip;
   }
 
@@ -231,7 +231,7 @@ export class SipsService {
       .select()
       .from(sips)
       .where(and(eq(sips.id, id), eq(sips.userId, userId)));
-    if (!row) throw new NotFoundException('SIP not found');
+    if (!row) throw new NotFoundError('SIP not found');
     return row;
   }
 
@@ -240,13 +240,13 @@ export class SipsService {
       .select({ id: portfolios.id })
       .from(portfolios)
       .where(and(eq(portfolios.id, accountId), eq(portfolios.userId, userId)));
-    if (!account) throw new NotFoundException('Account not found');
+    if (!account) throw new NotFoundError('Account not found');
     if (goalId) {
       const [goal] = await this.db
         .select({ id: goals.id })
         .from(goals)
         .where(and(eq(goals.id, goalId), eq(goals.userId, userId)));
-      if (!goal) throw new NotFoundException('Goal not found');
+      if (!goal) throw new NotFoundError('Goal not found');
     }
   }
 }

@@ -1,8 +1,7 @@
+import { CurrentUserService, WatchlistService } from '@folio/core';
 import { type StarRequest, StarRequestSchema, type WatchlistItem } from '@folio/shared';
 import { Body, Controller, Delete, Get, HttpCode, Param, Put } from '@nestjs/common';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
-import { CurrentUserService } from '../users/current-user.service.js';
-import { WatchlistService } from './watchlist.service.js';
 
 /** Starred stocks, ETFs, indices and mutual funds. PUT and DELETE are idempotent, so retries and double clicks are safe. */
 @Controller('watchlist')

@@ -7,18 +7,12 @@ import {
   replay,
   type Transaction,
 } from '@folio/shared';
-import {
-  BadRequestException,
-  Inject,
-  Injectable,
-  NotFoundException,
-  UnprocessableEntityException,
-} from '@nestjs/common';
 import { and, asc, desc, eq } from 'drizzle-orm';
-import { type Database, DRIZZLE } from '../database/database.module.js';
-import { instruments, portfolios, transactions } from '../database/schema.js';
-import { InstrumentsService, schemeCodeOf } from '../instruments/instruments.service.js';
-import { AccountsService } from './accounts.service.js';
+import type { AccountsService } from './accounts.js';
+import type { Database } from './database.js';
+import { BadRequestError, NotFoundError, UnprocessableError } from './errors.js';
+import { type InstrumentsService, schemeCodeOf } from './instruments.js';
+import { instruments, portfolios, transactions } from './schema.js';
 
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 type DbOrTx = Database | Tx;
@@ -34,10 +28,9 @@ function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-@Injectable()
 export class TransactionsService {
   constructor(
-    @Inject(DRIZZLE) private readonly db: Database,
+    private readonly db: Database,
     private readonly accounts: AccountsService,
     private readonly instruments: InstrumentsService,
   ) {}
@@ -84,7 +77,7 @@ export class TransactionsService {
    */
   async create(userId: string, input: CreateTransaction): Promise<Transaction> {
     if (input.tradeDate > today()) {
-      throw new BadRequestException('The trade date cannot be in the future');
+      throw new BadRequestError('The trade date cannot be in the future');
     }
     await this.accounts.get(userId, input.accountId);
     const instrument = await this.instruments.resolve(input.instrument);
@@ -145,7 +138,7 @@ export class TransactionsService {
       .innerJoin(instruments, eq(transactions.instrumentId, instruments.id))
       .where(and(eq(transactions.id, id), eq(portfolios.userId, userId)));
     if (!row?.instrumentId) {
-      throw new NotFoundException('Transaction not found');
+      throw new NotFoundError('Transaction not found');
     }
     const { portfolioId, instrumentId, symbol } = row;
 
@@ -198,7 +191,7 @@ export class TransactionsService {
       replay(entries);
     } catch (error) {
       if (error instanceof LedgerError) {
-        throw new UnprocessableEntityException(prefix + error.message);
+        throw new UnprocessableError(prefix + error.message);
       }
       throw error;
     }

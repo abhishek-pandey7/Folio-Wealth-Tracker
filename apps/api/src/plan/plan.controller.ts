@@ -1,4 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
+import { CurrentUserService, GoalsService, SipsService } from '@folio/core';
 import {
   type CreateGoal,
   CreateGoalSchema,
@@ -30,9 +31,6 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import type { Env } from '../config/env.js';
-import { CurrentUserService } from '../users/current-user.service.js';
-import { GoalsService } from './goals.service.js';
-import { SipsService } from './sips.service.js';
 
 @Controller('sips')
 export class SipsController {
