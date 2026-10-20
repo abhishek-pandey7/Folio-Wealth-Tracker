@@ -13,6 +13,23 @@ jobs:
   typescript:
     name: TypeScript (lint, typecheck, test, build)
     runs-on: ubuntu-latest
+    # Real Postgres so integration tests (*.int.spec.ts) run instead of being skipped.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: folio
+          POSTGRES_PASSWORD: folio
+          POSTGRES_DB: folio
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U folio -d folio"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://folio:folio@localhost:5432/folio
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,6 +39,7 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
+      - run: npm run db:migrate
       - run: npm test
       - run: npm run build
 
