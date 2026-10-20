@@ -27,15 +27,15 @@ The app runs in two shapes that share all business logic (`packages/core`).
 
 **Production, on Cloudflare's free plan.** Pages serves the web build and the API; a cron Worker fetches market data and precomputes statistics into Postgres, so a request only reads.
 
-![Production architecture: browser to a Cloudflare Pages project (static files and an API function), a cron Worker, Hyperdrive, Neon Postgres and market data providers](docs/images/architecture-cloudflare.svg)
+![Production architecture: browser to a Cloudflare Pages project (static files and an API function), a cron Worker, Hyperdrive, Neon Postgres and market data providers](docs/images/architecture-cloudflare.png)
 
 **Local development.** A NestJS API, a Go market data gateway with in-memory caches, and Postgres in Docker.
 
-![Local architecture: React web app to the NestJS API, which uses Postgres and the Go market gateway, which calls the market data providers](docs/images/architecture-local.svg)
+![Local architecture: React web app to the NestJS API, which uses Postgres and the Go market gateway, which calls the market data providers](docs/images/architecture-local.png)
 
 Workers get 10 ms of CPU per invocation and keep no memory between requests, so the Go gateway's caches and background warmers became Postgres tables and one cron trigger that runs a single small job each minute:
 
-![The six scheduled jobs in priority order, with when each has work and what one run does](docs/images/cron-jobs.svg)
+![The six scheduled jobs in priority order, with when each has work and what one run does](docs/images/cron-jobs.png)
 
 Every decision, the alternatives that were rejected, and measured numbers are in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Deploying it yourself: [`docs/DEPLOY.md`](docs/DEPLOY.md). Performance and quality measurements: [`docs/KPIS.md`](docs/KPIS.md).
 

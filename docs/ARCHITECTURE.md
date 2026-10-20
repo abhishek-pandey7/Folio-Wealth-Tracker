@@ -37,7 +37,7 @@ It is written to be read top to bottom once, then used as a reference.
 
 ## 2. System overview
 
-![Local architecture: React web app to the NestJS API, which uses Postgres and the Go market gateway, which calls the market data providers](images/architecture-local.svg)
+![Local architecture: React web app to the NestJS API, which uses Postgres and the Go market gateway, which calls the market data providers](images/architecture-local.png)
 
 | Component | Responsibility | Owns |
 | --- | --- | --- |
@@ -49,7 +49,7 @@ It is written to be read top to bottom once, then used as a reference.
 
 ### A request, end to end
 
-![A quote request through the browser, NestJS API, Go gateway and Yahoo Finance, with the request ID forwarded, a cache hit, a rate-limited upstream call and zod validation](images/request-flow.svg)
+![A quote request through the browser, NestJS API, Go gateway and Yahoo Finance, with the request ID forwarded, a cache hit, a rate-limited upstream call and zod validation](images/request-flow.png)
 
 ---
 
@@ -306,7 +306,7 @@ The local stack (NestJS, the Go gateway, Postgres in Docker) is the development 
 | No memory between requests, no long-running process | The Go gateway's in-memory caches and warmer goroutines become Postgres tables and a cron trigger |
 | Containers need the paid plan | Go cannot run there, so the gateway's logic is ported to TypeScript (`apps/worker/src/market`) |
 
-![Production architecture: browser to a Cloudflare Pages project (static files and an API function), a cron Worker, Hyperdrive, Neon Postgres and market data providers](images/architecture-cloudflare.svg)
+![Production architecture: browser to a Cloudflare Pages project (static files and an API function), a cron Worker, Hyperdrive, Neon Postgres and market data providers](images/architecture-cloudflare.png)
 
 Pages serves the site and the API; only `/api/*` runs code, so page loads are static and free. Pages has no cron triggers, so the scheduled jobs live in a second Worker with its public URL turned off. Both share one Hyperdrive config.
 
@@ -355,7 +355,7 @@ That is still above the free plan's 10 ms. Cloudflare allows each isolate "some 
 
 ## 5. Data model
 
-![Data model: per-user tables (users, portfolios, transactions, instruments, target allocations, watchlist, goals, goal holdings, SIPs) and shared market data tables (symbol data, fund data, market cache, job state)](images/data-model.svg)
+![Data model: per-user tables (users, portfolios, transactions, instruments, target allocations, watchlist, goals, goal holdings, SIPs) and shared market data tables (symbol data, fund data, market cache, job state)](images/data-model.png)
 
 Notes:
 
