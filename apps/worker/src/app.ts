@@ -13,6 +13,7 @@ import {
   InstrumentsService,
   SipsService,
   TransactionsService,
+  UnauthorizedError,
   ValuationService,
   WatchlistService,
 } from '@folio/core';
@@ -33,6 +34,7 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { z } from 'zod';
 import { authenticate, signIn, signOut } from './auth.js';
 import { connect } from './db.js';
+import { DEMO_EMAIL } from './demo.js';
 import type { Env } from './env.js';
 import type { Defer } from './market/cache.js';
 import { EdgeMarket } from './market/edge.js';
@@ -53,7 +55,7 @@ function services(db: Database, market: EdgeMarket, email: string) {
   };
 }
 
-type Vars = { db: Database; market: EdgeMarket; svc: ReturnType<typeof services> };
+type Vars = { db: Database; market: EdgeMarket; svc: ReturnType<typeof services>; mode: 'owner' | 'demo' };
 type Ctx = Context<{ Bindings: Env; Variables: Vars }>;
 
 const STATUS_TEXT: Record<number, string> = {
@@ -116,7 +118,12 @@ app.delete('/session', (c) => {
 });
 
 app.use('*', async (c, next) => {
-  const email = c.req.path === '/api/health' ? c.env.OWNER_EMAIL : await authenticate(c.req.raw, c.env);
+  // Without a valid session the visitor is the public demo user, never the owner.
+  const email = await authenticate(c.req.raw, c.env).catch((error: unknown) => {
+    if (error instanceof UnauthorizedError) return DEMO_EMAIL;
+    throw error;
+  });
+  c.set('mode', email === DEMO_EMAIL ? 'demo' : 'owner');
   const deferred: Promise<unknown>[] = [];
   const defer: Defer = (work) => {
     deferred.push(work);
@@ -144,8 +151,8 @@ app.onError((error, c) => {
 
 app.notFound((c) => c.json(errorBody(404, `Cannot ${c.req.method} ${c.req.path}`), 404));
 
-/** Reaching this means the middleware accepted the session: the web app's "am I signed in?" check. */
-app.get('/session', (c) => c.body(null, 204));
+/** Whether this browser is signed in as the owner or browsing the public demo. */
+app.get('/session', (c) => c.json({ mode: c.var.mode }));
 
 app.get('/health', async (c) => {
   const database = await c.var.db.execute('select 1').then(

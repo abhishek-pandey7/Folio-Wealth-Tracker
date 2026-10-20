@@ -335,7 +335,7 @@ The local stack (NestJS, the Go gateway, Postgres in Docker) is the development 
 
 ```mermaid
 flowchart LR
-    B[Browser] -->|signed session cookie: owner only| W
+    B[Browser] -->|owner: signed session cookie; anyone else: the demo| W
     subgraph W[Pages project: folio-4u6.pages.dev]
       A[Static files: the web build]
       H[functions/api: Hono over packages/core]
@@ -373,7 +373,9 @@ That is still above the free plan's 10 ms. Cloudflare allows each isolate "some 
 
 **Same numbers as the gateway.** Statistics use the same dividend-adjusted closes as the Go side, and on a side-by-side run every return, volatility and drawdown for India and US large caps and for flexi-cap funds matched the gateway exactly. An earlier version used Yahoo's batch `spark` endpoint to save calls; its closes are not dividend-adjusted, which put high-dividend stocks such as Coal India 7 points a year behind, so it is used only for quotes.
 
-**Security.** One user, so sign-in is a secret link: `https://…/#key=<LOGIN_KEY>`, 256 random bits held as a Pages secret. The key travels in the URL fragment, which browsers never send to a server, so it never appears in request logs. The web app posts it once to `/api/session`, removes it from the address bar and history, and receives an HMAC-signed session cookie (`HttpOnly`, `Secure`, `SameSite=Strict`, 90 days). `Strict` also means no other site can make the browser send the cookie, which rules out CSRF. The key is compared in constant time; a 256-bit secret needs no rate limit. Sessions are signed with the key itself, so rotating it signs every device out. The API fails closed: no key, or one shorter than 32 characters, and every data route returns 401. Preview deployments have no key, so they stay locked. Database credentials live in Hyperdrive, never in code. Hyperdrive's query cache is disabled: it would serve reads up to a minute old after a write.
+**Public demo.** The site is meant to be opened from a resume, so a visitor without a session is not refused: they act as a separate demo user with a sample portfolio (three accounts, trades priced from each stock's real past returns, two SIPs backfilled at real historical NAVs, goals, starred stocks). They can change anything; a nightly job deletes the demo user, which cascades to all its rows, and seeds it again. Every query in `packages/core` is already scoped by user id, so the demo cannot read or touch the owner's data, and a banner says it is sample data.
+
+**Security.** One owner, so sign-in is a secret link: `https://…/#key=<LOGIN_KEY>`, 256 random bits held as a Pages secret. The key travels in the URL fragment, which browsers never send to a server, so it never appears in request logs. The web app posts it once to `/api/session`, removes it from the address bar and history, and receives an HMAC-signed session cookie (`HttpOnly`, `Secure`, `SameSite=Strict`, 90 days). `Strict` also means no other site can make the browser send the cookie, which rules out CSRF. The key is compared in constant time; a 256-bit secret needs no rate limit. Sessions are signed with the key itself, so rotating it signs every device out. The API fails closed to the demo: with no valid session, or no key configured (or one shorter than 32 characters), a request is served as the demo user, never as the owner. Preview deployments have no key, so they only ever show the demo. Database credentials live in Hyperdrive, never in code. Hyperdrive's query cache is disabled: it would serve reads up to a minute old after a write.
 
 | Sign-in alternative | Why not |
 | --- | --- |
