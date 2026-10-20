@@ -31,7 +31,7 @@ import {
 import { type Context, Hono } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { z } from 'zod';
-import { authenticate } from './auth.js';
+import { authenticate, signIn, signOut } from './auth.js';
 import { connect } from './db.js';
 import type { Env } from './env.js';
 import type { Defer } from './market/cache.js';
@@ -58,6 +58,7 @@ type Ctx = Context<{ Bindings: Env; Variables: Vars }>;
 
 const STATUS_TEXT: Record<number, string> = {
   400: 'Bad Request',
+  401: 'Unauthorized',
   403: 'Forbidden',
   404: 'Not Found',
   409: 'Conflict',
@@ -101,6 +102,19 @@ const userId = (c: Ctx) => c.var.svc.currentUser.id();
 
 export const app = new Hono<{ Bindings: Env; Variables: Vars }>().basePath('/api');
 
+// Signing in and out need no database, so they come before the middleware below.
+
+app.post('/session', async (c) => {
+  const { key } = await c.req.json<{ key?: unknown }>().catch(() => ({ key: undefined }));
+  c.header('set-cookie', await signIn(key, c.env));
+  return c.body(null, 204);
+});
+
+app.delete('/session', (c) => {
+  c.header('set-cookie', signOut());
+  return c.body(null, 204);
+});
+
 app.use('*', async (c, next) => {
   const email = c.req.path === '/api/health' ? c.env.OWNER_EMAIL : await authenticate(c.req.raw, c.env);
   const deferred: Promise<unknown>[] = [];
@@ -129,6 +143,9 @@ app.onError((error, c) => {
 });
 
 app.notFound((c) => c.json(errorBody(404, `Cannot ${c.req.method} ${c.req.path}`), 404));
+
+/** Reaching this means the middleware accepted the session: the web app's "am I signed in?" check. */
+app.get('/session', (c) => c.body(null, 204));
 
 app.get('/health', async (c) => {
   const database = await c.var.db.execute('select 1').then(

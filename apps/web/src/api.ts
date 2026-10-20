@@ -13,6 +13,8 @@ async function request(path: string, init: RequestInit = {}): Promise<unknown> {
   const response = await fetch(path, { ...init, headers: { accept: 'application/json', ...init.headers } });
   const body: unknown = response.status === 204 ? undefined : await response.json().catch(() => undefined);
 
+  // The session ended (expired, or the key was rotated): reloading shows the locked screen.
+  if (response.status === 401) window.location.reload();
   if (!response.ok) {
     const message = (body as { message?: unknown } | undefined)?.message;
     throw new ApiError(typeof message === 'string' ? message : `Request failed (${response.status})`, response.status);

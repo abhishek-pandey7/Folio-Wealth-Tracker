@@ -5,10 +5,8 @@ export interface Env {
   ASSETS: Fetcher;
   /** The single user of this deployment. */
   OWNER_EMAIL: string;
-  /** Cloudflare Access team domain, e.g. https://folio.cloudflareaccess.com */
-  ACCESS_TEAM_DOMAIN?: string;
-  /** The Access application's audience tag. */
-  ACCESS_AUD?: string;
-  /** "true" skips the Access check. Only for `wrangler dev`, set in .dev.vars. */
+  /** The secret in the owner's sign-in link (#key=…); see auth.ts. At least 32 characters. */
+  LOGIN_KEY?: string;
+  /** "true" skips sign-in. Only for local `wrangler pages dev`, set in .dev.vars. */
   ALLOW_UNAUTHENTICATED?: string;
 }

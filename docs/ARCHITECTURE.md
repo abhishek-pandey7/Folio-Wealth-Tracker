@@ -335,7 +335,7 @@ The local stack (NestJS, the Go gateway, Postgres in Docker) is the development 
 
 ```mermaid
 flowchart LR
-    B[Browser] -->|Cloudflare Access: owner's email only| W
+    B[Browser] -->|signed session cookie: owner only| W
     subgraph W[Pages project: folio-4u6.pages.dev]
       A[Static files: the web build]
       H[functions/api: Hono over packages/core]
@@ -373,14 +373,20 @@ That is still above the free plan's 10 ms. Cloudflare allows each isolate "some 
 
 **Same numbers as the gateway.** Statistics use the same dividend-adjusted closes as the Go side, and on a side-by-side run every return, volatility and drawdown for India and US large caps and for flexi-cap funds matched the gateway exactly. An earlier version used Yahoo's batch `spark` endpoint to save calls; its closes are not dividend-adjusted, which put high-dividend stocks such as Coal India 7 points a year behind, so it is used only for quotes.
 
-**Security.** Cloudflare Access protects the whole hostname and lets only the owner's email through. The Worker also verifies Access's signed JWT (issuer, audience, signature against Access's published keys) and the email, and fails closed when Access is not configured, so a mistake in the Access policy does not expose the data. Database credentials live in Hyperdrive, never in code. Hyperdrive's query cache is disabled: it would serve reads up to a minute old after a write.
+**Security.** One user, so sign-in is a secret link: `https://…/#key=<LOGIN_KEY>`, 256 random bits held as a Pages secret. The key travels in the URL fragment, which browsers never send to a server, so it never appears in request logs. The web app posts it once to `/api/session`, removes it from the address bar and history, and receives an HMAC-signed session cookie (`HttpOnly`, `Secure`, `SameSite=Strict`, 90 days). `Strict` also means no other site can make the browser send the cookie, which rules out CSRF. The key is compared in constant time; a 256-bit secret needs no rate limit. Sessions are signed with the key itself, so rotating it signs every device out. The API fails closed: no key, or one shorter than 32 characters, and every data route returns 401. Preview deployments have no key, so they stay locked. Database credentials live in Hyperdrive, never in code. Hyperdrive's query cache is disabled: it would serve reads up to a minute old after a write.
+
+| Sign-in alternative | Why not |
+| --- | --- |
+| Cloudflare Access (email one-time code) | Strongest option and no code to maintain, but it needs a Zero Trust organisation, which can ask for a payment card even on the free plan |
+| Password and login form | Needs hashing, rate limiting against guessing and a form; for one user, a long random key does the same job with less to get wrong |
+| No sign-in, an unlisted URL | The data is someone's whole financial picture; a URL is not a secret once it has been shared or logged |
 
 | Alternative | Why not |
 | --- | --- |
 | Workers Paid + Containers to run the Go gateway as is | $5 a month for a single-user app, and the Go service's in-memory design still assumes a long-lived process, which containers that sleep do not guarantee |
 | Workers KV for precomputed data | The free tier allows 1,000 writes a day; quotes alone need more |
 | D1 (SQLite) instead of Postgres | The ledger relies on Postgres row locks (`SELECT … FOR UPDATE`) for concurrent sales, and two databases would mean two schemas |
-| Cache API for upstream responses | Cloudflare documents it as unavailable for Workers fronted by Access, and functional only on custom domains |
+| Cache API for upstream responses | Cloudflare documents it as functional only on custom domains, and unavailable behind Access |
 
 ---
 
@@ -472,7 +478,7 @@ Notes:
 3. **Rebalancing:** turn drift into a suggested list of trades to get back on target.
 4. **Broker imports:** parse Zerodha/Groww tradebook CSVs and CAMS/KFintech CAS statements into ledger entries.
 5. **Net worth:** EPF, PPF, FDs, gold and loans alongside market holdings.
-6. **Multi-user auth** (OIDC) beyond the single owner behind Cloudflare Access.
+6. **Multi-user auth** (OIDC) beyond the single owner and their sign-in link.
 7. **Playwright** end-to-end tests against mock mode.
 
 ### Deliberately not doing (yet)
