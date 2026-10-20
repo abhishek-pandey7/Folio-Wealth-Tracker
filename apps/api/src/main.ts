@@ -2,11 +2,13 @@ import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.js';
+import { requestContextMiddleware } from './common/request-context.js';
 import type { Env } from './config/env.js';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
   app.setGlobalPrefix('api');
+  app.use(requestContextMiddleware);
   app.enableShutdownHooks();
 
   const config = app.get<ConfigService<Env, true>>(ConfigService);
