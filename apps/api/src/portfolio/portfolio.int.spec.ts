@@ -324,4 +324,20 @@ describe.skipIf(!databaseUrl)('portfolio (Postgres)', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
     await expect(accounts.remove(bob, acct.id)).rejects.toBeInstanceOf(NotFoundException);
   });
+
+  it('names the instrument, not an internal id, when rejecting a sale', async () => {
+    const userId = await createUser();
+    const acct = await accounts.create(userId, { name: 'Zerodha', currency: 'INR' });
+
+    await expect(
+      txns.create(userId, {
+        accountId: acct.id,
+        instrument: stock(INR_STOCK),
+        type: 'sell',
+        tradeDate: '2025-01-10',
+        quantity: '1',
+        price: '100',
+      }),
+    ).rejects.toThrow(`Cannot sell 1 units of ${INR_STOCK}`);
+  });
 });
