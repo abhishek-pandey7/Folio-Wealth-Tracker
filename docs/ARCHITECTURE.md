@@ -322,6 +322,50 @@ Rules that keep comparisons honest:
 
 **Gap:** no browser end-to-end tests yet. Playwright against the mock data mode is the next addition.
 
+### 4.9 Production on Cloudflare's free plan
+
+The local stack (NestJS, the Go gateway, Postgres in Docker) is the development and reference setup. Production runs the same app on Cloudflare Workers for free, which forces a different shape for market data. The budget per invocation drives every choice:
+
+| Free plan limit | Consequence |
+| --- | --- |
+| 10 ms CPU per invocation (waiting on I/O does not count) | No in-request work that scales with history size; statistics are precomputed |
+| 50 upstream calls per invocation | Batched calls; inline loading capped per request |
+| No memory between requests, no long-running process | The Go gateway's in-memory caches and warmer goroutines become Postgres tables and a cron trigger |
+| Containers need the paid plan | Go cannot run there, so the gateway's logic is ported to TypeScript (`apps/worker/src/market`) |
+
+```mermaid
+flowchart LR
+    B[Browser] -->|Cloudflare Access: owner's email only| W
+    subgraph W[One Worker]
+      A[Static assets: the web build]
+      H[Hono API over packages/core]
+      C[Cron, every minute]
+    end
+    H --> P[(Neon Postgres via Hyperdrive)]
+    C --> P
+    C --> Y[Yahoo, mfapi, AMFI, Frankfurter]
+    H -. only what is missing .-> Y
+```
+
+**One app, two deployments.** Business logic lives in `packages/core`, which knows nothing about NestJS or Workers: services take a Drizzle database and a `MarketData` port and throw plain `AppError`s. Locally the port is backed by the Go gateway; on Workers by `EdgeMarket`, which reads precomputed tables. The Hono routes mirror the Nest controllers route for route, so the web app does not know which one it talks to.
+
+**Requests only read.** `symbol_data` and `fund_data` hold each instrument's latest statistics and quote; a screen is one `SELECT` and a sort. A request fetches inline only what is missing (a newly starred symbol, a fund nobody has held), capped so it stays inside the budget; anything beyond the cap is queued for the cron job and reported as "still loading". Searches, chart history, FX and latest NAVs go through `market_cache`, a stale-while-revalidate cache in Postgres: a stale entry is served at once and refreshed after the response via `waitUntil`, and served on provider errors.
+
+**One cron trigger, many small jobs.** Every minute, the scheduler runs the single most urgent job, chosen from data age: SIP instalments (daily, after NAVs publish), quotes (every 10 min while NSE or NYSE is open, hourly otherwise), stock statistics (4 symbols per run, refreshed every 3 h), the AMFI fund catalogue (daily, 256 KB per run), fund statistics (5 per run, every 12 h). Batch sizes come from measurement: parsing five years of daily closes and computing statistics costs ~1.6 ms per symbol and ~1.1 ms per fund. Failures for a specific instrument (delisted, a segregated fund with zero NAV) are stored and retried after 6 h; a provider outage backs the job off for 5 minutes so it cannot starve the others.
+
+**AMFI in chunks.** The 1.5 MB NAV file takes ~20 ms to parse, twice the budget. The catalogue job reads it with HTTP range requests, parses whole lines only (a chunk ends at its last newline, so no line or UTF-8 character is split), and carries the parser's position (current heading and fund house) in `job_state`. The pass pins the file's ETag and starts over if AMFI replaces the file mid-pass.
+
+**Same numbers as the gateway.** Statistics use the same dividend-adjusted closes as the Go side, and on a side-by-side run every return, volatility and drawdown for India and US large caps and for flexi-cap funds matched the gateway exactly. An earlier version used Yahoo's batch `spark` endpoint to save calls; its closes are not dividend-adjusted, which put high-dividend stocks such as Coal India 7 points a year behind, so it is used only for quotes.
+
+**Security.** Cloudflare Access protects the whole hostname and lets only the owner's email through. The Worker also verifies Access's signed JWT (issuer, audience, signature against Access's published keys) and the email, and fails closed when Access is not configured, so a mistake in the Access policy does not expose the data. Database credentials live in Hyperdrive, never in code. Hyperdrive's query cache is disabled: it would serve reads up to a minute old after a write.
+
+| Alternative | Why not |
+| --- | --- |
+| Workers Paid + Containers to run the Go gateway as is | $5 a month for a single-user app, and the Go service's in-memory design still assumes a long-lived process, which containers that sleep do not guarantee |
+| Workers KV for precomputed data | The free tier allows 1,000 writes a day; quotes alone need more |
+| D1 (SQLite) instead of Postgres | The ledger relies on Postgres row locks (`SELECT … FOR UPDATE`) for concurrent sales, and two databases would mean two schemas |
+| Cache API for upstream responses | Cloudflare documents it as unavailable for Workers fronted by Access, and functional only on custom domains |
+
 ---
 
 ## 5. Data model
@@ -401,16 +445,19 @@ Notes:
 - [x] Portfolio: broker accounts; buy, sell and dividend ledger validated on every write (no overselling, no deletes that break later entries, per-account row locks against concurrent sales); FIFO lots; live valuation in rupees with XIRR, allocation by asset class, market and sector
 - [x] Starred watchlist in Postgres (stocks, ETFs, indices and mutual funds): idempotent `PUT`/`DELETE`, symbols verified and currency taken from the gateway (never the client), optimistic UI with rollback, single-owner mode until auth
 
+- [x] SIPs that record their own instalments at each date's real NAV (backfilled, idempotent); goals with progress, linked holdings and the monthly investment needed
+- [x] Business logic in a framework-free `packages/core`, shared by the NestJS API and the Workers app
+- [x] Production on Cloudflare's free plan: one Worker serving the web build and the API, market data precomputed by cron into Postgres (section 4.9)
+
 ### Next (in order)
 
-1. **SIPs and goals:** recurring SIPs that record their own instalments; goals with progress and the monthly investment needed at a stated assumed return.
-2. **Price alerts and notes:** targets on starred symbols with in-app notifications; a buy reason per holding.
-3. **Indian capital gains:** FIFO tax lots, short-term vs long-term classification by holding period, and tax-loss harvesting candidates.
-4. **Rebalancing:** turn drift into a suggested list of trades to get back on target.
-5. **Broker imports:** parse Zerodha/Groww tradebook CSVs and CAMS/KFintech CAS statements into ledger entries.
-6. **Net worth:** EPF, PPF, FDs, gold and loans alongside market holdings.
-7. **Auth** (OIDC) and per-user data scoping.
-8. **Playwright** end-to-end tests against mock mode.
+1. **Price alerts and notes:** targets on starred symbols with in-app notifications; a buy reason per holding.
+2. **Indian capital gains:** FIFO tax lots, short-term vs long-term classification by holding period, and tax-loss harvesting candidates.
+3. **Rebalancing:** turn drift into a suggested list of trades to get back on target.
+4. **Broker imports:** parse Zerodha/Groww tradebook CSVs and CAMS/KFintech CAS statements into ledger entries.
+5. **Net worth:** EPF, PPF, FDs, gold and loans alongside market holdings.
+6. **Multi-user auth** (OIDC) beyond the single owner behind Cloudflare Access.
+7. **Playwright** end-to-end tests against mock mode.
 
 ### Deliberately not doing (yet)
 

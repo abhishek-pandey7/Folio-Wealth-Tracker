@@ -1,0 +1,34 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "folio",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-30",
+  // pg needs Node's net and crypto APIs.
+  "compatibility_flags": ["nodejs_compat"],
+
+  // The web build. Only /api/* reaches the Worker; every other path is a file,
+  // or index.html for client-side routes. Static requests are free and unlimited.
+  "assets": {
+    "directory": "../web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+
+  // Created with --caching-disabled: Hyperdrive's query cache would serve
+  // reads up to a minute old, so a transaction just added would not show.
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "REPLACE_WITH_HYPERDRIVE_ID",
+      "localConnectionString": "postgres://folio:folio@127.0.0.1:5442/folio"
+    }
+  ],
+
+  // One trigger, every minute; jobs.ts picks the most urgent job each time.
+  "triggers": { "crons": ["* * * * *"] },
+
+  "observability": { "enabled": true }
+
+  // Secrets (wrangler secret put): OWNER_EMAIL, ACCESS_TEAM_DOMAIN, ACCESS_AUD.
+}

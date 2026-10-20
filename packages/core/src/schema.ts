@@ -1,8 +1,10 @@
+import type { FundStats, Quote, SymbolStats } from '@folio/shared';
 import {
   type AnyPgColumn,
   date,
   index,
   integer,
+  jsonb,
   numeric,
   pgEnum,
   pgTable,
@@ -195,3 +197,62 @@ export const goalHoldings = pgTable(
   },
   (t) => [primaryKey({ columns: [t.goalId, t.instrumentId] })],
 );
+
+// Market data for the Workers deployment. Locally the Go gateway keeps these in
+// memory; a Worker has no memory that survives between requests, so cron jobs
+// precompute statistics into Postgres and requests only read them.
+
+/** One row per stock, ETF or index the app has seen: its identity, latest statistics and latest quote. */
+export const symbolData = pgTable(
+  'symbol_data',
+  {
+    symbol: text('symbol').primaryKey(),
+    name: text('name'),
+    exchange: text('exchange'),
+    /** Null until the symbol's identity has been fetched; quotes need it. */
+    currency: currency('currency'),
+    stats: jsonb('stats').$type<SymbolStats>(),
+    statsAt: timestamp('stats_at', { withTimezone: true }),
+    quote: jsonb('quote').$type<Quote>(),
+    quoteAt: timestamp('quote_at', { withTimezone: true }),
+    /** Why the last refresh failed, so a dead symbol is reported instead of retried every minute. */
+    error: text('error'),
+    errorAt: timestamp('error_at', { withTimezone: true }),
+  },
+  (t) => [index('symbol_data_stats_at_idx').on(t.statsAt), index('symbol_data_quote_at_idx').on(t.quoteAt)],
+);
+
+/** One row per mutual fund: catalogue fields from AMFI's NAV file, statistics from mfapi. */
+export const fundData = pgTable(
+  'fund_data',
+  {
+    schemeCode: text('scheme_code').primaryKey(),
+    name: text('name').notNull(),
+    fundHouse: text('fund_house'),
+    /** The screener category this scheme belongs to; null for funds loaded on demand. */
+    categoryId: text('category_id'),
+    navDate: date('nav_date'),
+    /** When AMFI's file last listed it; schemes missing from the latest pass are wound down. */
+    seenAt: timestamp('seen_at', { withTimezone: true }),
+    stats: jsonb('stats').$type<FundStats>(),
+    statsAt: timestamp('stats_at', { withTimezone: true }),
+    error: text('error'),
+    errorAt: timestamp('error_at', { withTimezone: true }),
+  },
+  (t) => [index('fund_data_category_idx').on(t.categoryId), index('fund_data_stats_at_idx').on(t.statsAt)],
+);
+
+/** Upstream responses worth keeping for a while: searches, chart history, FX, latest NAVs. */
+export const marketCache = pgTable('market_cache', {
+  key: text('key').primaryKey(),
+  value: jsonb('value').notNull(),
+  fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull(),
+});
+
+/** Progress and last result of each scheduled job. */
+export const jobState = pgTable('job_state', {
+  name: text('name').primaryKey(),
+  state: jsonb('state').$type<Record<string, unknown>>().notNull().default({}),
+  report: jsonb('report').$type<Record<string, unknown>>(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});

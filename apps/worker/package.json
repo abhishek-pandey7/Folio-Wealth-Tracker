@@ -1,0 +1,30 @@
+{
+  "name": "@folio/worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The whole app on Cloudflare Workers: the web build as static assets, the API on Hono, and market data precomputed by cron.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "wrangler deploy --dry-run --outdir dist",
+    "deploy": "npm run build -w @folio/web && wrangler deploy",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@folio/core": "^0.1.0",
+    "@folio/shared": "^0.1.0",
+    "drizzle-orm": "^0.45.4",
+    "hono": "4.13.13",
+    "jose": "6.2.12",
+    "pg": "^8.23.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261006.1",
+    "@types/node": "^26.6.5",
+    "@types/pg": "^8.23.1",
+    "vitest": "^5.0.5",
+    "wrangler": "4.147.0"
+  }
+}
