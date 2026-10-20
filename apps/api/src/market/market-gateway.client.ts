@@ -33,8 +33,9 @@ export class MarketGatewayClient {
     this.timeoutMs = config.get('MARKET_GATEWAY_TIMEOUT_MS', { infer: true });
   }
 
-  async get<S extends z.ZodType>(path: string, schema: S): Promise<z.infer<S>> {
-    const response = await this.fetch(path, this.timeoutMs);
+  /** `timeoutMs` overrides the default for slow calls, such as a screen whose cache is still cold. */
+  async get<S extends z.ZodType>(path: string, schema: S, options: { timeoutMs?: number } = {}): Promise<z.infer<S>> {
+    const response = await this.fetch(path, options.timeoutMs ?? this.timeoutMs);
     const body: unknown = await response.json().catch(() => undefined);
 
     if (!response.ok) {
