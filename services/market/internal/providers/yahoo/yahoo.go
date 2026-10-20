@@ -14,6 +14,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
+	"github.com/abhishek-pandey7/folio/services/market/internal/analytics"
 	"github.com/abhishek-pandey7/folio/services/market/internal/market"
 	"github.com/abhishek-pandey7/folio/services/market/internal/upstream"
 )
@@ -45,12 +46,20 @@ type chartResult struct {
 		RegularMarketPrice json.Number `json:"regularMarketPrice"`
 		ChartPreviousClose json.Number `json:"chartPreviousClose"`
 		RegularMarketTime  int64       `json:"regularMarketTime"`
+		LongName           string      `json:"longName"`
+		ShortName          string      `json:"shortName"`
+		FullExchangeName   string      `json:"fullExchangeName"`
+		FiftyTwoWeekHigh   *float64    `json:"fiftyTwoWeekHigh"`
+		FiftyTwoWeekLow    *float64    `json:"fiftyTwoWeekLow"`
 	} `json:"meta"`
 	Timestamp  []int64 `json:"timestamp"`
 	Indicators struct {
 		Quote []struct {
 			Close []*json.Number `json:"close"`
 		} `json:"quote"`
+		AdjClose []struct {
+			AdjClose []*float64 `json:"adjclose"`
+		} `json:"adjclose"`
 	} `json:"indicators"`
 }
 
@@ -140,6 +149,73 @@ func (p *Provider) History(ctx context.Context, symbol string, rng market.Range)
 		Interval: rng.Interval(),
 		Points:   points,
 		Source:   source,
+	}, nil
+}
+
+// DailySeries returns five years of daily closes adjusted for splits and
+// dividends. Unadjusted closes would show a 1:2 split as a 50% crash.
+func (p *Provider) DailySeries(ctx context.Context, symbol string) (market.DailySeries, error) {
+	r, err := p.chart(ctx, symbol, "5y", "1d")
+	if err != nil {
+		return market.DailySeries{}, err
+	}
+
+	var adjusted []*float64
+	if len(r.Indicators.AdjClose) > 0 {
+		adjusted = r.Indicators.AdjClose[0].AdjClose
+	}
+	var closes []*json.Number
+	if len(r.Indicators.Quote) > 0 {
+		closes = r.Indicators.Quote[0].Close
+	}
+
+	// Use one kind of close for the whole series. Falling back to an unadjusted
+	// close for a single missing adjusted value would splice two price scales
+	// together and fake a jump. Indices have no adjusted series at all.
+	useAdjusted := len(adjusted) > 0
+
+	points := make([]analytics.Point, 0, len(r.Timestamp))
+	for i, ts := range r.Timestamp {
+		var v float64
+		switch {
+		case useAdjusted:
+			if i >= len(adjusted) || adjusted[i] == nil {
+				continue
+			}
+			v = *adjusted[i]
+		case i < len(closes) && closes[i] != nil:
+			f, err := closes[i].Float64()
+			if err != nil {
+				continue
+			}
+			v = f
+		default:
+			continue
+		}
+		if v <= 0 {
+			continue
+		}
+		date := time.Unix(ts, 0).UTC().Truncate(24 * time.Hour)
+		if n := len(points); n > 0 && points[n-1].Date.Equal(date) {
+			points[n-1].Value = v
+			continue
+		}
+		points = append(points, analytics.Point{Date: date, Value: v})
+	}
+
+	price, err := parseNumber(r.Meta.RegularMarketPrice)
+	if err != nil {
+		return market.DailySeries{}, fmt.Errorf("%w: yahoo price for %s: %v", market.ErrUpstream, symbol, err)
+	}
+	return market.DailySeries{
+		Symbol:   r.Meta.Symbol,
+		Name:     firstNonEmpty(r.Meta.LongName, r.Meta.ShortName, r.Meta.Symbol),
+		Exchange: r.Meta.FullExchangeName,
+		Currency: r.Meta.Currency,
+		Price:    price.String(),
+		High52w:  r.Meta.FiftyTwoWeekHigh,
+		Low52w:   r.Meta.FiftyTwoWeekLow,
+		Points:   points,
 	}, nil
 }
 

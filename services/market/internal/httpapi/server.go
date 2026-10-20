@@ -15,6 +15,7 @@ import (
 
 	"github.com/abhishek-pandey7/folio/services/market/internal/cache"
 	"github.com/abhishek-pandey7/folio/services/market/internal/market"
+	"github.com/abhishek-pandey7/folio/services/market/internal/universe"
 )
 
 type MarketService interface {
@@ -25,7 +26,15 @@ type MarketService interface {
 	FxRate(ctx context.Context, base, quote string) (market.FxRate, error)
 	Fund(ctx context.Context, schemeCode string) (market.Fund, error)
 	SearchFunds(ctx context.Context, query string) ([]market.FundMatch, error)
+	Universes() []universe.Universe
+	Stats(ctx context.Context, symbol string) (market.SymbolStats, error)
+	Screen(ctx context.Context, q market.ScreenQuery) (market.ScreenResult, error)
+	FundCategories(ctx context.Context) ([]market.FundCategoryInfo, error)
+	FundStats(ctx context.Context, schemeCode string) (market.FundStats, error)
+	FundHistory(ctx context.Context, schemeCode, rng string) (market.History, error)
+	FundScreen(ctx context.Context, q market.FundScreenQuery) (market.FundScreenResult, error)
 	CacheStats() map[string]cache.Stats
+	WarmReports() map[string]market.WarmReport
 }
 
 type handler struct {
@@ -47,11 +56,78 @@ func NewHandler(svc MarketService, logger *slog.Logger, mode string) http.Handle
 	mux.HandleFunc("GET /v1/funds/search", h.searchFunds)
 	mux.HandleFunc("GET /v1/funds/{code}", h.fund)
 
+	mux.HandleFunc("GET /v1/universes", h.universes)
+	mux.HandleFunc("GET /v1/screener", h.screener)
+	mux.HandleFunc("GET /v1/stats/{symbol}", h.stats)
+	mux.HandleFunc("GET /v1/funds/categories", h.fundCategories)
+	mux.HandleFunc("GET /v1/funds/screener", h.fundScreener)
+	mux.HandleFunc("GET /v1/funds/{code}/stats", h.fundStats)
+	mux.HandleFunc("GET /v1/funds/{code}/history", h.fundHistory)
+
 	return requestID(accessLog(logger, recoverPanics(logger, mux)))
 }
 
 func (h *handler) health(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "mode": h.mode, "caches": h.svc.CacheStats()})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status": "ok",
+		"mode":   h.mode,
+		"caches": h.svc.CacheStats(),
+		"warm":   h.svc.WarmReports(),
+	})
+}
+
+func (h *handler) universes(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, h.svc.Universes())
+}
+
+func (h *handler) screener(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	respond(w, r, h.logger)(h.svc.Screen(r.Context(), market.ScreenQuery{
+		Universe: q.Get("universe"),
+		Symbols:  splitList(q.Get("symbols")),
+		Period:   q.Get("period"),
+		Sort:     q.Get("sort"),
+		Order:    q.Get("order"),
+		Limit:    q.Get("limit"),
+	}))
+}
+
+func (h *handler) stats(w http.ResponseWriter, r *http.Request) {
+	respond(w, r, h.logger)(h.svc.Stats(r.Context(), r.PathValue("symbol")))
+}
+
+func (h *handler) fundCategories(w http.ResponseWriter, r *http.Request) {
+	respond(w, r, h.logger)(h.svc.FundCategories(r.Context()))
+}
+
+func (h *handler) fundScreener(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	respond(w, r, h.logger)(h.svc.FundScreen(r.Context(), market.FundScreenQuery{
+		Category: q.Get("category"),
+		Codes:    splitList(q.Get("codes")),
+		Period:   q.Get("period"),
+		Sort:     q.Get("sort"),
+		Order:    q.Get("order"),
+		Limit:    q.Get("limit"),
+	}))
+}
+
+func (h *handler) fundStats(w http.ResponseWriter, r *http.Request) {
+	respond(w, r, h.logger)(h.svc.FundStats(r.Context(), r.PathValue("code")))
+}
+
+func (h *handler) fundHistory(w http.ResponseWriter, r *http.Request) {
+	respond(w, r, h.logger)(h.svc.FundHistory(r.Context(), r.PathValue("code"), r.URL.Query().Get("range")))
+}
+
+func splitList(raw string) []string {
+	var out []string
+	for _, s := range strings.Split(raw, ",") {
+		if s = strings.TrimSpace(s); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func (h *handler) quote(w http.ResponseWriter, r *http.Request) {
@@ -59,13 +135,7 @@ func (h *handler) quote(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) batchQuotes(w http.ResponseWriter, r *http.Request) {
-	var symbols []string
-	for _, s := range strings.Split(r.URL.Query().Get("symbols"), ",") {
-		if s = strings.TrimSpace(s); s != "" {
-			symbols = append(symbols, s)
-		}
-	}
-	respond(w, r, h.logger)(h.svc.Quotes(r.Context(), symbols))
+	respond(w, r, h.logger)(h.svc.Quotes(r.Context(), splitList(r.URL.Query().Get("symbols"))))
 }
 
 func (h *handler) history(w http.ResponseWriter, r *http.Request) {

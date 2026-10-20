@@ -46,32 +46,49 @@ func New(opts Options) *Client {
 
 // GetJSON fetches url and decodes the JSON body into out.
 func (c *Client) GetJSON(ctx context.Context, url string, out any) error {
+	body, err := c.fetch(ctx, url, "application/json")
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(body, out); err != nil {
+		return fmt.Errorf("%w: %s sent an unreadable response: %v", market.ErrUpstream, c.name, err)
+	}
+	return nil
+}
+
+// Get fetches url and returns the raw body, for non-JSON sources.
+func (c *Client) Get(ctx context.Context, url string) ([]byte, error) {
+	return c.fetch(ctx, url, "*/*")
+}
+
+func (c *Client) fetch(ctx context.Context, url, accept string) ([]byte, error) {
 	if err := c.limiter.Wait(ctx); err != nil {
-		return fmt.Errorf("%w: %s rate limit wait: %v", market.ErrUpstream, c.name, err)
+		return nil, fmt.Errorf("%w: %s rate limit wait: %v", market.ErrUpstream, c.name, err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return fmt.Errorf("%w: %s request: %v", market.ErrUpstream, c.name, err)
+		return nil, fmt.Errorf("%w: %s request: %v", market.ErrUpstream, c.name, err)
 	}
 	req.Header.Set("User-Agent", userAgent)
-	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Accept", accept)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("%w: %s unreachable: %v", market.ErrUpstream, c.name, err)
+		return nil, fmt.Errorf("%w: %s unreachable: %v", market.ErrUpstream, c.name, err)
 	}
 	defer resp.Body.Close()
 
 	switch {
 	case resp.StatusCode == http.StatusNotFound:
-		return fmt.Errorf("%w: %s has no data for this request", market.ErrNotFound, c.name)
+		return nil, fmt.Errorf("%w: %s has no data for this request", market.ErrNotFound, c.name)
 	case resp.StatusCode >= 400:
-		return fmt.Errorf("%w: %s returned HTTP %d", market.ErrUpstream, c.name, resp.StatusCode)
+		return nil, fmt.Errorf("%w: %s returned HTTP %d", market.ErrUpstream, c.name, resp.StatusCode)
 	}
 
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxBodyBytes)).Decode(out); err != nil {
-		return fmt.Errorf("%w: %s sent an unreadable response: %v", market.ErrUpstream, c.name, err)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s response read failed: %v", market.ErrUpstream, c.name, err)
 	}
-	return nil
+	return body, nil
 }

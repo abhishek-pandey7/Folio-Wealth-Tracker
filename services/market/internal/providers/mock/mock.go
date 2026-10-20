@@ -13,6 +13,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
+	"github.com/abhishek-pandey7/folio/services/market/internal/analytics"
 	"github.com/abhishek-pandey7/folio/services/market/internal/market"
 )
 
@@ -119,17 +120,129 @@ var funds = []struct {
 	{market.FundMatch{SchemeCode: "118989", Name: "HDFC Mid-Cap Opportunities Fund - Direct Plan - Growth"}, "HDFC Mutual Fund"},
 }
 
-func (p *Provider) Fund(_ context.Context, code string) (market.Fund, error) {
-	for _, f := range funds {
-		if f.SchemeCode == code {
-			nav := decimal.NewFromInt(int64(20 + hash(code)%180)).Add(decimal.New(int64(hash(code)%10000), -4))
-			return market.Fund{
-				SchemeCode: code, Name: f.Name, FundHouse: f.house, Category: "Equity Scheme",
-				Nav: nav.String(), NavDate: time.Now().UTC().Format(time.DateOnly), Source: source,
-			}, nil
+func (p *Provider) Fund(ctx context.Context, code string) (market.Fund, error) {
+	series, err := p.FundHistory(ctx, code)
+	if err != nil {
+		return market.Fund{}, err
+	}
+	return market.Fund{
+		SchemeCode: code, Name: series.Name, FundHouse: series.FundHouse, Category: series.Category,
+		Nav: series.Nav, NavDate: series.NavDate, Source: source,
+	}, nil
+}
+
+// DailySeries is a seeded random walk over five years of weekdays, ending at
+// the symbol's mock price, so screens have realistic-looking spread.
+func (p *Provider) DailySeries(_ context.Context, symbol string) (market.DailySeries, error) {
+	seed := hash(symbol)
+	end := time.Now().UTC().Truncate(24 * time.Hour)
+	points := walk(seed, end.AddDate(-5, 0, 0), end, 100)
+
+	last := points[len(points)-1].Value
+	hi, lo := last, last
+	for _, pt := range points {
+		if pt.Date.After(end.AddDate(-1, 0, 0)) {
+			hi, lo = math.Max(hi, pt.Value), math.Min(lo, pt.Value)
 		}
 	}
-	return market.Fund{}, fmt.Errorf("%w: no mutual fund with scheme code %s", market.ErrNotFound, code)
+	name := symbol
+	for _, m := range catalog {
+		if m.Symbol == symbol {
+			name = m.Name
+		}
+	}
+	return market.DailySeries{
+		Symbol: symbol, Name: name, Exchange: "Mock", Currency: currencyOf(symbol),
+		Price: decimal.NewFromFloat(last).StringFixed(2), High52w: &hi, Low52w: &lo, Points: points,
+	}, nil
+}
+
+// Mock fund schemes use AMFI-style headings, so the real category matching runs against them.
+var mockCategories = []struct{ heading, label string }{
+	{"Equity Scheme - Flexi Cap Fund", "Flexi Cap"},
+	{"Equity Scheme - Large Cap Fund", "Large Cap"},
+	{"Equity Scheme - Mid Cap Fund", "Mid Cap"},
+	{"Equity Scheme - Small Cap Fund", "Small Cap"},
+	{"Equity Scheme - Large & Mid Cap Fund", "Large & Mid Cap"},
+	{"Equity Scheme - Multi Cap Fund", "Multi Cap"},
+	{"Equity Scheme - ELSS", "ELSS Tax Saver"},
+	{"Equity Scheme - Value Fund", "Value"},
+	{"Other Scheme - Index Funds", "Nifty 50 Index"},
+	{"Hybrid Scheme - Aggressive Hybrid Fund", "Aggressive Hybrid"},
+	{"Hybrid Scheme - Balanced Advantage", "Balanced Advantage"},
+}
+
+var mockHouses = []string{"Aurora Mutual Fund", "Banyan Mutual Fund", "Cedar Mutual Fund"}
+
+type mockScheme struct {
+	code, name, house, category string
+}
+
+func allMockSchemes() []mockScheme {
+	var out []mockScheme
+	for i, c := range mockCategories {
+		for j, house := range mockHouses {
+			out = append(out, mockScheme{
+				code:     fmt.Sprint(900000 + i*10 + j),
+				name:     fmt.Sprintf("%s %s Fund - Direct Plan - Growth", strings.TrimSuffix(house, " Mutual Fund"), c.label),
+				house:    house,
+				category: c.heading,
+			})
+		}
+	}
+	for _, f := range funds {
+		out = append(out, mockScheme{code: f.SchemeCode, name: f.Name, house: f.house, category: "Equity Scheme - Flexi Cap Fund"})
+	}
+	return out
+}
+
+func (p *Provider) Schemes(ctx context.Context) ([]market.Scheme, error) {
+	var out []market.Scheme
+	for _, s := range allMockSchemes() {
+		series, err := p.FundHistory(ctx, s.code)
+		if err != nil {
+			return nil, err
+		}
+		navDate, _ := time.Parse(time.DateOnly, series.NavDate)
+		out = append(out, market.Scheme{
+			Code: s.code, Name: s.name, FundHouse: s.house, Category: s.category,
+			Plan: "Direct Plan", Option: "Growth Option", Nav: series.Nav, NavDate: navDate,
+		})
+	}
+	return out, nil
+}
+
+func (p *Provider) FundHistory(_ context.Context, code string) (market.NavSeries, error) {
+	for _, s := range allMockSchemes() {
+		if s.code != code {
+			continue
+		}
+		end := time.Now().UTC().Truncate(24 * time.Hour)
+		points := walk(hash(code), end.AddDate(-6, 0, 0), end, 10)
+		last := points[len(points)-1]
+		return market.NavSeries{
+			SchemeCode: code, Name: s.name, FundHouse: s.house, Category: s.category,
+			Nav: decimal.NewFromFloat(last.Value).StringFixed(4), NavDate: last.Date.Format(time.DateOnly), Points: points,
+		}, nil
+	}
+	return market.NavSeries{}, fmt.Errorf("%w: no mutual fund with scheme code %s", market.ErrNotFound, code)
+}
+
+// walk generates a seeded weekday random walk with a per-seed drift and volatility.
+func walk(seed uint64, start, end time.Time, startValue float64) []analytics.Point {
+	rnd := rand.New(rand.NewPCG(seed, seed>>7))
+	drift := (-0.05 + 0.30*rnd.Float64()) / 252 // -5% to +25% a year
+	vol := (0.008 + 0.017*rnd.Float64())        // 0.8% to 2.5% a day
+	value := startValue
+	var points []analytics.Point
+	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
+		if d.Weekday() == time.Saturday || d.Weekday() == time.Sunday {
+			continue
+		}
+		value *= math.Exp(drift + vol*rnd.NormFloat64())
+		points = append(points, analytics.Point{Date: d, Value: value})
+	}
+	return points
 }
 
 func (p *Provider) SearchFunds(_ context.Context, query string) ([]market.FundMatch, error) {

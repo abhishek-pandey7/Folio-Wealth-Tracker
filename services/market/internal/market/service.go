@@ -18,6 +18,7 @@ type QuoteSource interface {
 	Quote(ctx context.Context, symbol string) (Quote, error)
 	History(ctx context.Context, symbol string, rng Range) (History, error)
 	Search(ctx context.Context, query string) ([]SymbolMatch, error)
+	DailySeries(ctx context.Context, symbol string) (DailySeries, error)
 }
 
 type FxSource interface {
@@ -27,6 +28,12 @@ type FxSource interface {
 type FundSource interface {
 	Fund(ctx context.Context, schemeCode string) (Fund, error)
 	SearchFunds(ctx context.Context, query string) ([]FundMatch, error)
+	FundHistory(ctx context.Context, schemeCode string) (NavSeries, error)
+}
+
+// SchemeSource lists every mutual fund scheme with its category.
+type SchemeSource interface {
+	Schemes(ctx context.Context) ([]Scheme, error)
 }
 
 type Config struct {
@@ -40,10 +47,11 @@ const MaxBatchSymbols = 50
 // Service validates input, then serves every read through a cache sized to how
 // often that data actually changes: quotes tick, NAVs and FX rates are daily.
 type Service struct {
-	quotes QuoteSource
-	fx     FxSource
-	funds  FundSource
-	cfg    Config
+	quotes  QuoteSource
+	fx      FxSource
+	funds   FundSource
+	schemes SchemeSource
+	cfg     Config
 
 	quoteCache      *cache.Cache[Quote]
 	historyCache    *cache.Cache[History]
@@ -51,17 +59,28 @@ type Service struct {
 	fxCache         *cache.Cache[FxRate]
 	fundCache       *cache.Cache[Fund]
 	fundSearchCache *cache.Cache[[]FundMatch]
+
+	// Analytics caches hold computed metrics, not raw series: a stats entry is
+	// a few hundred bytes where five years of daily prices is ~100 KB.
+	statsCache      *cache.Cache[SymbolStats]
+	fundStatsCache  *cache.Cache[FundStats]
+	navSeriesCache  *cache.Cache[NavSeries]
+	schemeListCache *cache.Cache[[]Scheme]
+
+	warmMu sync.Mutex
+	warm   map[string]WarmReport
 }
 
-func NewService(quotes QuoteSource, fx FxSource, funds FundSource, cfg Config) *Service {
+func NewService(quotes QuoteSource, fx FxSource, funds FundSource, schemes SchemeSource, cfg Config) *Service {
 	if cfg.BatchConcurrency <= 0 {
 		cfg.BatchConcurrency = 8
 	}
 	return &Service{
-		quotes: quotes,
-		fx:     fx,
-		funds:  funds,
-		cfg:    cfg,
+		quotes:  quotes,
+		fx:      fx,
+		funds:   funds,
+		schemes: schemes,
+		cfg:     cfg,
 
 		quoteCache:      cache.New[Quote](cache.Options{TTL: cfg.QuoteTTL, StaleFor: 24 * time.Hour, MaxEntries: 5000}),
 		historyCache:    cache.New[History](cache.Options{TTL: time.Hour, StaleFor: 24 * time.Hour, MaxEntries: 1000}),
@@ -69,6 +88,13 @@ func NewService(quotes QuoteSource, fx FxSource, funds FundSource, cfg Config) *
 		fxCache:         cache.New[FxRate](cache.Options{TTL: time.Hour, StaleFor: 72 * time.Hour, MaxEntries: 100}),
 		fundCache:       cache.New[Fund](cache.Options{TTL: time.Hour, StaleFor: 72 * time.Hour, MaxEntries: 5000}),
 		fundSearchCache: cache.New[[]FundMatch](cache.Options{TTL: 24 * time.Hour, MaxEntries: 2000}),
+
+		statsCache:      cache.New[SymbolStats](cache.Options{TTL: time.Hour, StaleFor: 48 * time.Hour, MaxEntries: 2000}),
+		fundStatsCache:  cache.New[FundStats](cache.Options{TTL: 12 * time.Hour, StaleFor: 72 * time.Hour, MaxEntries: 5000}),
+		navSeriesCache:  cache.New[NavSeries](cache.Options{TTL: 12 * time.Hour, StaleFor: 72 * time.Hour, MaxEntries: 100}),
+		schemeListCache: cache.New[[]Scheme](cache.Options{TTL: 6 * time.Hour, StaleFor: 72 * time.Hour, MaxEntries: 1}),
+
+		warm: map[string]WarmReport{},
 	}
 }
 
@@ -219,5 +245,9 @@ func (s *Service) CacheStats() map[string]cache.Stats {
 		"fx":         s.fxCache.Stats(),
 		"funds":      s.fundCache.Stats(),
 		"fundSearch": s.fundSearchCache.Stats(),
+		"stats":      s.statsCache.Stats(),
+		"fundStats":  s.fundStatsCache.Stats(),
+		"navSeries":  s.navSeriesCache.Stats(),
+		"schemes":    s.schemeListCache.Stats(),
 	}
 }

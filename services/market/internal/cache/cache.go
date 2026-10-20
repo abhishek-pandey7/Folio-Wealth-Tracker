@@ -91,6 +91,27 @@ func (c *Cache[V]) Get(ctx context.Context, key string, load func(context.Contex
 	}
 }
 
+// Refresh reloads key unconditionally and stores the result, so a background
+// job can renew entries before they expire instead of letting users hit
+// misses. On failure the existing entry is kept, and stale-if-error still
+// protects readers. Concurrent Gets for the same key share this load.
+func (c *Cache[V]) Refresh(ctx context.Context, key string, load func(context.Context) (V, error)) (V, error) {
+	res := <-c.group.DoChan(key, func() (any, error) {
+		value, err := load(context.WithoutCancel(ctx))
+		if err != nil {
+			return value, err
+		}
+		c.store(key, value)
+		return value, nil
+	})
+	if res.Err != nil {
+		c.loadErrors.Add(1)
+		var zero V
+		return zero, res.Err
+	}
+	return res.Val.(V), nil
+}
+
 func (c *Cache[V]) Stats() Stats {
 	c.mu.Lock()
 	size := len(c.entries)
