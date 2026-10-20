@@ -8,6 +8,11 @@
   // pg needs Node's net and crypto APIs.
   "compatibility_flags": ["nodejs_compat"],
 
+  // Smart Placement: Cloudflare learns that the API mostly talks to the database
+  // (Neon, Singapore) and runs it near there, so a request's several queries in a
+  // row do not each cross from the visitor's edge and back. Pages takes no region pin.
+  "placement": { "mode": "smart" },
+
   // Created with --caching-disabled: Hyperdrive's query cache would serve
   // reads up to a minute old, so a transaction just added would not show.
   "hyperdrive": [
