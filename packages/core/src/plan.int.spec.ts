@@ -79,6 +79,7 @@ describe.skipIf(!databaseUrl)('SIPs and goals (Postgres)', () => {
   let sips: SipsService;
   let goals: GoalsService;
   const userIds: string[] = [];
+  let navRequests = 0;
 
   async function setup() {
     const [user] = await db
@@ -94,7 +95,10 @@ describe.skipIf(!databaseUrl)('SIPs and goals (Postgres)', () => {
   beforeAll(() => {
     pool = new Pool({ connectionString: databaseUrl });
     db = drizzle({ client: pool, schema });
-    const gateway = marketFromRoutes(fakeGateway);
+    const gateway = marketFromRoutes((path) => {
+      if (path.includes('/navs')) navRequests++;
+      return fakeGateway(path);
+    });
     const instruments = new InstrumentsService(db, gateway);
     accounts = new AccountsService(db);
     txns = new TransactionsService(db, accounts, instruments);
@@ -128,12 +132,14 @@ describe.skipIf(!databaseUrl)('SIPs and goals (Postgres)', () => {
     expect(recorded[0]).toMatchObject({ type: 'buy', quantity: '100', price: '50', amount: '-5000' });
   });
 
-  it('is idempotent: running again records nothing new', async () => {
+  it('is idempotent: running again records nothing new, without asking for NAVs again', async () => {
     const { userId, accountId } = await setup();
     await sips.create(userId, { accountId, schemeCode: FUND, amount: '1000', dayOfMonth: 10, startDate: '2025-03-01' });
 
+    const before = navRequests;
     expect(await sips.catchUp(userId, true)).toBe(0);
     expect(await sips.catchUp(userId, true)).toBe(0);
+    expect(navRequests).toBe(before);
   });
 
   it('applies a new day or amount from today on, never rewriting the past', async () => {

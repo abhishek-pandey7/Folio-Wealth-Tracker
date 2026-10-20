@@ -78,6 +78,7 @@ Set `MARKET_DATA_MODE=mock` to run fully offline with deterministic fake data.
 ```
 apps/web           React dashboard
 apps/api           NestJS API (owns Postgres, proxies market data)
+apps/worker        The same app on Cloudflare Workers (see docs/DEPLOY.md)
 services/market    Go market data gateway
 packages/core      Business logic, free of NestJS so Workers can run it too
 packages/shared    API contracts and decimal-safe domain math

@@ -7,7 +7,7 @@ import {
   sipPurchase,
   type UpdateSip,
 } from '@folio/shared';
-import { and, asc, count, eq, inArray, sum } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, max, sum } from 'drizzle-orm';
 import type { Database } from './database.js';
 import { NotFoundError, UnprocessableError } from './errors.js';
 import { type InstrumentsService, schemeCodeOf } from './instruments.js';
@@ -183,9 +183,17 @@ export class SipsService {
   }
 
   private async record(sip: SipRow, symbol: string): Promise<number> {
-    const due = sipDueDates(sip.activeFrom, sip.dayOfMonth, today());
     const code = schemeCodeOf(symbol);
-    if (due.length === 0 || !code) return 0;
+    if (!code) return 0;
+    // Instalments are recorded in date order, and each lands on the first NAV on or after
+    // its due date, so any due date up to the last recorded trade date is already handled.
+    // This keeps a catch-up with nothing new to a single query, without calling mfapi.
+    const [last] = await this.db
+      .select({ date: max(transactions.tradeDate) })
+      .from(transactions)
+      .where(eq(transactions.sipId, sip.id));
+    const due = sipDueDates(sip.activeFrom, sip.dayOfMonth, today()).filter((d) => !last?.date || d > last.date);
+    if (due.length === 0) return 0;
 
     // One request covers up to 400 instalments (33 years of a monthly SIP).
     const dates = due.slice(-400);
