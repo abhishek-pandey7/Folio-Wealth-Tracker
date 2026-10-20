@@ -1,56 +1,42 @@
-import { useState } from 'react';
-import { FundLookup } from './components/FundLookup.js';
-import { PriceChart } from './components/PriceChart.js';
-import { StatusBar } from './components/StatusBar.js';
-import { SymbolSearch } from './components/SymbolSearch.js';
-import { Watchlist } from './components/Watchlist.js';
-import { useWatchlist } from './hooks.js';
+import { Link, Route, Routes } from 'react-router';
+import { TopNav } from './components/TopNav.js';
+import { DiscoverPage } from './pages/DiscoverPage.js';
+import { FundPage } from './pages/FundPage.js';
+import { FundsPage } from './pages/FundsPage.js';
+import { MarketsPage } from './pages/MarketsPage.js';
+import { StarredPage } from './pages/StarredPage.js';
+import { StockPage } from './pages/StockPage.js';
 
 export function App() {
-  const watchlist = useWatchlist();
-  // Selection is independent of starring: unstarring the open chart keeps it open so it can be re-starred.
-  const [selected, setSelected] = useState<string | undefined>();
-  const active = selected ?? watchlist.items[0]?.symbol;
-
   return (
     <div className="app">
-      <header className="topbar">
-        <span className="brand">
-          folio<span className="brand-dot">.</span>
-        </span>
-        <StatusBar />
-      </header>
-
-      <main className="layout">
-        <section className="panel watch" aria-label="Watchlist">
-          <header className="panel-head">
-            <h2>Watchlist</h2>
-            <span className="muted small">NSE, BSE and US</span>
-          </header>
-          <SymbolSearch
-            isStarred={watchlist.isStarred}
-            onPick={(match) => {
-              if (!watchlist.isStarred(match.symbol)) {
-                watchlist.star(match);
-              }
-              setSelected(match.symbol);
-            }}
-          />
-          {watchlist.error && <p className="inline-error">{watchlist.error.message}</p>}
-          <Watchlist items={watchlist.items} loading={watchlist.isPending} selected={active} onSelect={setSelected} />
-        </section>
-
-        {active ? (
-          <PriceChart symbol={active} />
-        ) : (
-          <section className="panel chart-panel empty">
-            <p className="strong">No symbol selected</p>
-            <p className="muted">Star something to see its price history here.</p>
-          </section>
-        )}
-
-        <FundLookup />
+      <TopNav />
+      <main>
+        <Routes>
+          <Route path="/" element={<MarketsPage />} />
+          <Route path="/discover" element={<DiscoverPage />} />
+          <Route path="/discover/:universeId" element={<DiscoverPage />} />
+          <Route path="/stock/:symbol" element={<StockPage />} />
+          <Route path="/funds" element={<FundsPage />} />
+          <Route path="/funds/:categoryId" element={<FundsPage />} />
+          <Route path="/fund/:code" element={<FundPage />} />
+          <Route path="/starred" element={<StarredPage />} />
+          <Route path="*" element={<NotFound />} />
+        </Routes>
       </main>
+    </div>
+  );
+}
+
+function NotFound() {
+  return (
+    <div className="page">
+      <section className="panel empty-state">
+        <p className="strong">Page not found</p>
+        <Link to="/" className="button">
+          Back to markets
+        </Link>
+      </section>
     </div>
   );
 }
