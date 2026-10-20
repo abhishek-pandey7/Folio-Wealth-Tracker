@@ -9,7 +9,7 @@
 
 import { NotFoundError, UnprocessableError } from '@folio/core';
 import type { HistoryRange, Quote, SymbolMatch } from '@folio/shared';
-import { isoDate, type Point } from './analytics.js';
+import type { Point } from './analytics.js';
 import { decimal, getJson } from './upstream.js';
 
 const BASE = 'https://query1.finance.yahoo.com';
@@ -58,8 +58,8 @@ export interface Chart {
    * requested range: today's quote only when the range is 1d.
    */
   quote: Quote;
-  /** Closes by UTC date, oldest first. */
-  points: { date: string; close: number }[];
+  /** Plain closes by UTC date, oldest first, for price charts. */
+  closes: Point[];
   /**
    * Closes adjusted for splits and dividends, so returns are total returns.
    * Indices have no adjusted series and use plain closes. Never mixed: filling
@@ -83,27 +83,9 @@ export async function chart(symbol: string, range = '1d', interval = '1d'): Prom
     throw new NotFoundError(`No price for ${symbol}`);
   }
 
-  const points: Chart['points'] = [];
-  const closes = result.indicators.quote[0]?.close ?? [];
-  (result.timestamp ?? []).forEach((ts, i) => {
-    const close = closes[i];
-    if (close === null || close === undefined) return; // holidays and halts are padded with nulls
-    const date = isoDate(ts * 1000);
-    // The live bar can share a date with the last completed one; keep the latest.
-    if (points.at(-1)?.date === date) points.pop();
-    points.push({ date, close });
-  });
-
+  const timestamps = result.timestamp ?? [];
+  const plain = result.indicators.quote[0]?.close ?? [];
   const adjclose = result.indicators.adjclose?.[0]?.adjclose;
-  const series = adjclose?.length ? adjclose : closes;
-  const adjusted: Point[] = [];
-  (result.timestamp ?? []).forEach((ts, i) => {
-    const v = series[i];
-    if (v === null || v === undefined || v <= 0) return;
-    const date = Math.floor((ts * 1000) / DAY_MS) * DAY_MS;
-    if (adjusted.at(-1)?.date === date) adjusted.pop();
-    adjusted.push({ date, value: v });
-  });
 
   const identity: Identity = {
     symbol: meta.symbol,
@@ -119,9 +101,28 @@ export async function chart(symbol: string, range = '1d', interval = '1d'): Prom
       meta.chartPreviousClose,
       meta.regularMarketTime ?? Date.now() / 1000,
     ),
-    points,
-    adjusted,
+    closes: byDay(timestamps, plain),
+    adjusted: byDay(timestamps, adjclose?.length ? adjclose : plain),
   };
+}
+
+/**
+ * One point per UTC day, skipping the nulls Yahoo pads holidays and halts
+ * with; the live bar can share a day with the last completed one, and the
+ * later wins. Dates stay numbers: this runs on every refresh, over five years
+ * of closes, in an isolate that is usually cold, so per-point string
+ * formatting would cost more than everything else in the job.
+ */
+function byDay(timestamps: number[], values: (number | null)[]): Point[] {
+  const out: Point[] = [];
+  for (let i = 0; i < timestamps.length; i++) {
+    const v = values[i];
+    if (v === null || v === undefined || v <= 0) continue;
+    const date = Math.floor(((timestamps[i] as number) * 1000) / DAY_MS) * DAY_MS;
+    if (out.length && (out[out.length - 1] as Point).date === date) out.pop();
+    out.push({ date, value: v });
+  }
+  return out;
 }
 
 export function toQuote(identity: Identity, price: number, previous: number, epochSeconds: number): Quote {

@@ -165,7 +165,7 @@ export class EdgeMarket implements MarketData {
         currency: chart.identity.currency,
         range,
         interval: yahoo.HISTORY_INTERVAL[range],
-        points: chart.points.map((p) => ({ date: p.date, close: decimal(p.close) })),
+        points: chart.closes.map((p) => ({ date: isoDate(p.date), close: decimal(p.value) })),
         source: 'yahoo',
       } satisfies PriceHistory;
     });

@@ -49,8 +49,9 @@ export function buildStats(identity: yahoo.Identity, points: Point[]): SymbolSta
 }
 
 /**
- * Symbols per refresh. Each costs ~1.6 ms of CPU (parsing five years of
- * closes, then the statistics), and a free-plan invocation gets 10 ms.
+ * Symbols per refresh. In production a cold run of 4 costs 31–42 ms of CPU,
+ * most of it pg and Drizzle compiling in a new isolate rather than per-symbol
+ * work (docs/ARCHITECTURE.md, section 4.9).
  */
 export const STATS_BATCH = 4;
 

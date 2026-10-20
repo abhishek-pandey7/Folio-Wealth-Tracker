@@ -37,7 +37,7 @@ export function fundStatsOf(series: mfapi.NavSeries): FundStats {
   };
 }
 
-/** Funds per refresh: ~1.1 ms of CPU each, inside a free-plan invocation's 10 ms. */
+/** Funds per refresh: a few ms of CPU each once warm; see docs/ARCHITECTURE.md, section 4.9. */
 export const FUNDS_BATCH = 5;
 
 /** Recomputes statistics for a few funds, one mfapi call each. */
