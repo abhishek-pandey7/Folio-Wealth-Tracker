@@ -93,3 +93,24 @@ export const HealthStatusSchema = z.object({
   timestamp: z.iso.datetime(),
 });
 export type HealthStatus = z.infer<typeof HealthStatusSchema>;
+
+// Watchlist (starred symbols).
+
+export const AssetClassSchema = z.enum(['equity', 'etf', 'mutual_fund', 'index', 'bond', 'gold', 'crypto', 'cash']);
+export type AssetClass = z.infer<typeof AssetClassSchema>;
+
+export const WatchlistItemSchema = z.object({
+  symbol: z.string(),
+  name: z.string(),
+  assetClass: AssetClassSchema,
+  currency: CurrencySchema,
+  starredAt: z.iso.datetime(),
+});
+export type WatchlistItem = z.infer<typeof WatchlistItemSchema>;
+
+/** Optional display metadata from a search result. Currency is never taken from the client. */
+export const StarRequestSchema = z.object({
+  name: z.string().trim().min(1).max(200).optional(),
+  type: SymbolMatchSchema.shape.type.optional(),
+});
+export type StarRequest = z.infer<typeof StarRequestSchema>;
