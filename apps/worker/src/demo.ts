@@ -178,6 +178,16 @@ export async function resetDemo(db: Database, market: MarketData, logger: Logger
   });
   await goals.setHoldings(userId, emergency.id, { holdings: [{ instrumentKey: 'NIFTYBEES.NS', share: 0.5 }] });
 
-  for (const symbol of STARS) await watchlist.star(userId, symbol, {});
+  const starNames = await db
+    .select({ symbol: schema.symbolData.symbol, name: schema.symbolData.name })
+    .from(schema.symbolData)
+    .where(inArray(schema.symbolData.symbol, STARS));
+  const nameOf = new Map(starNames.map((r) => [r.symbol, r.name ?? undefined]));
+  for (const symbol of STARS) {
+    await watchlist.star(userId, symbol, {
+      name: nameOf.get(symbol),
+      type: symbol.startsWith('^') ? 'index' : 'equity',
+    });
+  }
   return { trades };
 }

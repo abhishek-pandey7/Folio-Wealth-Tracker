@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1160" height="620" viewBox="0 0 1160 620" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title>How folio-cron picks a job each minute</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#57606a"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1160" height="620" rx="16" fill="#ffffff"/>
+  <text x="32" y="44" font-size="22" font-weight="700" fill="#1f2328">Scheduled jobs: one small job per minute</text>
+  <text x="32" y="70" font-size="15" fill="#57606a">Each job finds its own work from data age, so a failed run is simply picked up again a minute later.</text>
+
+  <!-- Trigger -->
+  <rect x="32" y="110" width="210" height="124" rx="12" fill="#fff8f2" stroke="#f38020" stroke-width="1.5"/>
+  <text x="137" y="146" font-size="17" font-weight="700" fill="#1f2328" text-anchor="middle">Cron trigger</text>
+  <text x="137" y="172" font-size="14" fill="#57606a" text-anchor="middle">every minute</text>
+  <text x="137" y="202" font-size="14" fill="#1f2328" text-anchor="middle">runs the first job</text>
+  <text x="137" y="222" font-size="14" fill="#1f2328" text-anchor="middle">that has work</text>
+  <line x1="242" y1="172" x2="300" y2="172" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Header row -->
+  <text x="320" y="122" font-size="13" font-weight="700" fill="#57606a">PRIORITY AND JOB</text>
+  <text x="640" y="122" font-size="13" font-weight="700" fill="#57606a">WHEN IT HAS WORK</text>
+  <text x="900" y="122" font-size="13" font-weight="700" fill="#57606a">ONE RUN DOES</text>
+
+  <!-- Rows -->
+  <g font-size="14">
+    <rect x="304" y="136" width="824" height="58" rx="10" fill="#f6f8fa" stroke="#d0d7de"/>
+    <text x="320" y="171" font-weight="700" fill="#1f2328">1  SIP instalments</text>
+    <text x="640" y="171" fill="#1f2328">daily, once NAVs are out (00:30 IST)</text>
+    <text x="900" y="171" fill="#1f2328">records due SIPs at real NAVs</text>
+
+    <rect x="304" y="202" width="824" height="58" rx="10" fill="#f6f8fa" stroke="#d0d7de"/>
+    <text x="320" y="237" font-weight="700" fill="#1f2328">2  Demo reset</text>
+    <text x="640" y="237" fill="#1f2328">nightly at 02:30 IST, or if empty</text>
+    <text x="900" y="237" fill="#1f2328">rebuilds the sample portfolio</text>
+
+    <rect x="304" y="268" width="824" height="58" rx="10" fill="#f6f8fa" stroke="#d0d7de"/>
+    <text x="320" y="303" font-weight="700" fill="#1f2328">3  Quotes</text>
+    <text x="640" y="303" fill="#1f2328">10 min while NSE or NYSE is open</text>
+    <text x="900" y="303" fill="#1f2328">100 symbols, 20 per call</text>
+
+    <rect x="304" y="334" width="824" height="58" rx="10" fill="#f6f8fa" stroke="#d0d7de"/>
+    <text x="320" y="369" font-weight="700" fill="#1f2328">4  Stock statistics</text>
+    <text x="640" y="369" fill="#1f2328">each symbol every 3 hours</text>
+    <text x="900" y="369" fill="#1f2328">4 symbols, 5 years of closes</text>
+
+    <rect x="304" y="400" width="824" height="58" rx="10" fill="#f6f8fa" stroke="#d0d7de"/>
+    <text x="320" y="435" font-weight="700" fill="#1f2328">5  Fund catalogue</text>
+    <text x="640" y="435" fill="#1f2328">daily, from AMFI's NAV file</text>
+    <text x="900" y="435" fill="#1f2328">256 KB of a 1.5 MB file</text>
+
+    <rect x="304" y="466" width="824" height="58" rx="10" fill="#f6f8fa" stroke="#d0d7de"/>
+    <text x="320" y="501" font-weight="700" fill="#1f2328">6  Fund statistics</text>
+    <text x="640" y="501" fill="#1f2328">each fund every 12 hours</text>
+    <text x="900" y="501" fill="#1f2328">5 funds from mfapi.in</text>
+  </g>
+
+  <!-- Failure handling -->
+  <rect x="32" y="548" width="1096" height="48" rx="10" fill="#fff8c5" stroke="#d4a72c"/>
+  <text x="52" y="578" font-size="14" fill="#1f2328"><tspan font-weight="700">When things fail:</tspan> a dead symbol or fund is stored and retried after 6 hours; a provider outage pauses that job for 5 minutes, so it cannot starve the rest.</text>
+</svg>

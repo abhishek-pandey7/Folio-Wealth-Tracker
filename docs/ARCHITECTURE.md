@@ -37,15 +37,7 @@ It is written to be read top to bottom once, then used as a reference.
 
 ## 2. System overview
 
-```mermaid
-flowchart LR
-    Browser["Browser<br/>React + Vite"] -->|"/api/*"| API["NestJS API<br/>(TypeScript)"]
-    API -->|SQL| PG[("PostgreSQL 17")]
-    API -->|"HTTP /v1/*<br/>x-request-id"| GW["Market gateway<br/>(Go)"]
-    GW --> Y["Yahoo Finance<br/>quotes, history, search"]
-    GW --> MF["mfapi.in<br/>mutual fund NAVs"]
-    GW --> FX["Frankfurter<br/>ECB FX rates"]
-```
+![Local architecture: React web app to the NestJS API, which uses Postgres and the Go market gateway, which calls the market data providers](images/architecture-local.png)
 
 | Component | Responsibility | Owns |
 | --- | --- | --- |
@@ -57,26 +49,7 @@ flowchart LR
 
 ### A request, end to end
 
-```mermaid
-sequenceDiagram
-    participant B as Browser
-    participant A as NestJS API
-    participant G as Go gateway
-    participant Y as Yahoo Finance
-
-    B->>A: GET /api/market/quotes?symbols=TCS.NS,AAPL
-    Note over A: assign x-request-id (AsyncLocalStorage)
-    A->>G: GET /v1/quotes?symbols=... (x-request-id forwarded)
-    par fan-out, max 8 in flight
-        G->>G: cache hit for TCS.NS (fresh < 15s)
-    and
-        G->>Y: chart/AAPL (rate limited, 5s timeout)
-        Y-->>G: 200 JSON
-    end
-    G-->>A: { quotes: [...], errors: {} }
-    Note over A: parse with BatchQuotesSchema (zod)
-    A-->>B: 200 validated JSON
-```
+![A quote request through the browser, NestJS API, Go gateway and Yahoo Finance, with the request ID forwarded, a cache hit, a rate-limited upstream call and zod validation](images/request-flow.png)
 
 ---
 
@@ -333,19 +306,7 @@ The local stack (NestJS, the Go gateway, Postgres in Docker) is the development 
 | No memory between requests, no long-running process | The Go gateway's in-memory caches and warmer goroutines become Postgres tables and a cron trigger |
 | Containers need the paid plan | Go cannot run there, so the gateway's logic is ported to TypeScript (`apps/worker/src/market`) |
 
-```mermaid
-flowchart LR
-    B[Browser] -->|owner: signed session cookie; anyone else: the demo| W
-    subgraph W[Pages project: folio-4u6.pages.dev]
-      A[Static files: the web build]
-      H[functions/api: Hono over packages/core]
-    end
-    C[Worker folio-cron: every minute, no public URL]
-    H --> P[(Neon Postgres via Hyperdrive)]
-    C --> P
-    C --> Y[Yahoo, mfapi, AMFI, Frankfurter]
-    H -. only what is missing .-> Y
-```
+![Production architecture: browser to a Cloudflare Pages project (static files and an API function), a cron Worker, Hyperdrive, Neon Postgres and market data providers](images/architecture-cloudflare.png)
 
 Pages serves the site and the API; only `/api/*` runs code, so page loads are static and free. Pages has no cron triggers, so the scheduled jobs live in a second Worker with its public URL turned off. Both share one Hyperdrive config.
 
@@ -394,56 +355,7 @@ That is still above the free plan's 10 ms. Cloudflare allows each isolate "some 
 
 ## 5. Data model
 
-```mermaid
-erDiagram
-    users ||--o{ portfolios : owns
-    users ||--o{ watchlist_items : stars
-    portfolios ||--o{ transactions : records
-    portfolios ||--o{ target_allocations : targets
-    instruments ||--o{ transactions : "traded in"
-    instruments ||--o{ target_allocations : "weighted in"
-    instruments ||--o{ watchlist_items : "starred as"
-
-    users {
-        uuid id PK
-        text email UK
-        currency base_currency
-    }
-    portfolios {
-        uuid id PK
-        uuid user_id FK
-        text name
-        text broker
-        currency currency
-        numeric drift_threshold
-    }
-    instruments {
-        uuid id PK
-        text symbol UK
-        asset_class asset_class
-        currency currency
-    }
-    transactions {
-        uuid id PK
-        uuid portfolio_id FK
-        uuid instrument_id FK
-        transaction_type type
-        date trade_date
-        numeric quantity
-        numeric price
-        numeric amount
-        numeric fees
-    }
-    target_allocations {
-        uuid portfolio_id PK
-        uuid instrument_id PK
-        numeric weight
-    }
-    watchlist_items {
-        uuid user_id PK
-        uuid instrument_id PK
-    }
-```
+![Data model: per-user tables (users, portfolios, transactions, instruments, target allocations, watchlist, goals, goal holdings, SIPs) and shared market data tables (symbol data, fund data, market cache, job state)](images/data-model.png)
 
 Notes:
 

@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1160" height="660" viewBox="0 0 1160 660" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title>A quote request, end to end, in the local stack</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#57606a"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1160" height="660" rx="16" fill="#ffffff"/>
+  <text x="32" y="44" font-size="22" font-weight="700" fill="#1f2328">A request, end to end (local stack)</text>
+  <text x="32" y="70" font-size="15" fill="#57606a">One request ID follows the call through every service, and every response is checked against its contract.</text>
+
+  <!-- Participants -->
+  <g font-size="15" font-weight="700" fill="#1f2328" text-anchor="middle">
+    <rect x="50" y="96" width="170" height="44" rx="10" fill="#ddf4ff" stroke="#54aeff"/>
+    <text x="135" y="124">Browser</text>
+    <rect x="350" y="96" width="170" height="44" rx="10" fill="#fbefff" stroke="#c297ff"/>
+    <text x="435" y="124">NestJS API</text>
+    <rect x="650" y="96" width="170" height="44" rx="10" fill="#ddf4ff" stroke="#54aeff"/>
+    <text x="735" y="124">Go gateway</text>
+    <rect x="950" y="96" width="170" height="44" rx="10" fill="#fff8c5" stroke="#d4a72c"/>
+    <text x="1035" y="124">Yahoo Finance</text>
+  </g>
+
+  <!-- Lifelines -->
+  <g stroke="#d0d7de" stroke-width="2" stroke-dasharray="6 6">
+    <line x1="135" y1="140" x2="135" y2="630"/>
+    <line x1="435" y1="140" x2="435" y2="630"/>
+    <line x1="735" y1="140" x2="735" y2="630"/>
+    <line x1="1035" y1="140" x2="1035" y2="630"/>
+  </g>
+
+  <g font-size="14" fill="#1f2328">
+    <!-- 1 -->
+    <line x1="135" y1="186" x2="433" y2="186" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+    <text x="150" y="176">GET /api/market/quotes?symbols=TCS.NS,AAPL</text>
+
+    <!-- 2 note -->
+    <rect x="452" y="206" width="250" height="40" rx="8" fill="#f6f8fa" stroke="#d0d7de"/>
+    <text x="466" y="231" font-size="13">assigns an x-request-id</text>
+
+    <!-- 3 -->
+    <line x1="435" y1="286" x2="733" y2="286" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+    <text x="450" y="276">GET /v1/quotes (request ID forwarded)</text>
+
+    <!-- 4 note -->
+    <rect x="752" y="306" width="262" height="40" rx="8" fill="#dafbe1" stroke="#4ac26b"/>
+    <text x="766" y="331" font-size="13">TCS.NS: cache hit, fresh, no call</text>
+
+    <!-- 5 -->
+    <line x1="735" y1="386" x2="1033" y2="386" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+    <text x="750" y="376">chart/AAPL (rate-limited, 5 s timeout)</text>
+
+    <!-- 6 -->
+    <line x1="1035" y1="436" x2="737" y2="436" stroke="#57606a" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#arrow)"/>
+    <text x="1020" y="426" text-anchor="end">200 JSON</text>
+
+    <!-- 7 -->
+    <line x1="735" y1="486" x2="437" y2="486" stroke="#57606a" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#arrow)"/>
+    <text x="720" y="476" text-anchor="end">{ quotes: [...], errors: {} }</text>
+
+    <!-- 8 note -->
+    <rect x="452" y="506" width="262" height="40" rx="8" fill="#f6f8fa" stroke="#d0d7de"/>
+    <text x="466" y="531" font-size="13">checks it against the zod contract</text>
+
+    <!-- 9 -->
+    <line x1="435" y1="586" x2="137" y2="586" stroke="#57606a" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#arrow)"/>
+    <text x="420" y="576" text-anchor="end">200, validated JSON</text>
+  </g>
+</svg>
