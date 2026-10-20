@@ -17,7 +17,7 @@ import (
 func newServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	m := mock.New()
-	svc := market.NewService(m, m, m, market.Config{QuoteTTL: 15 * time.Second})
+	svc := market.NewService(m, m, m, m, market.Config{QuoteTTL: 15 * time.Second})
 	srv := httptest.NewServer(NewHandler(svc, slog.New(slog.NewTextHandler(io.Discard, nil)), "mock"))
 	t.Cleanup(srv.Close)
 	return srv
@@ -60,6 +60,19 @@ func TestRoutes(t *testing.T) {
 		{"/v1/funds/abc", http.StatusBadRequest},
 		{"/v1/funds/999999", http.StatusNotFound},
 		{"/v1/quotes", http.StatusBadRequest},
+		{"/v1/universes", http.StatusOK},
+		{"/v1/screener?universe=in-large&period=1m&sort=return&limit=5", http.StatusOK},
+		{"/v1/screener?symbols=AAPL,TCS.NS&sort=risk_adjusted", http.StatusOK},
+		{"/v1/screener?universe=nope", http.StatusNotFound},
+		{"/v1/screener?universe=in-large&sort=vibes", http.StatusBadRequest},
+		{"/v1/stats/INFY.NS", http.StatusOK},
+		{"/v1/funds/categories", http.StatusOK},
+		{"/v1/funds/screener?category=mid-cap&period=5y", http.StatusOK},
+		{"/v1/funds/screener?codes=122639,900010", http.StatusOK},
+		{"/v1/funds/screener?category=crypto", http.StatusNotFound},
+		{"/v1/funds/122639/stats", http.StatusOK},
+		{"/v1/funds/122639/history?range=3mo", http.StatusOK},
+		{"/v1/funds/999999/stats", http.StatusNotFound},
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {

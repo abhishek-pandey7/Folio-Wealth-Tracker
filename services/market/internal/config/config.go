@@ -14,6 +14,8 @@ type Config struct {
 	Mode     string // "live" or "mock"
 	QuoteTTL time.Duration
 	LogLevel slog.Level
+	// Warm runs background jobs that keep screener statistics cached.
+	Warm bool
 }
 
 func Load() (Config, error) {
@@ -21,6 +23,7 @@ func Load() (Config, error) {
 		Addr:     getenv("MARKET_ADDR", "127.0.0.1:8081"),
 		Mode:     getenv("MARKET_DATA_MODE", "live"),
 		QuoteTTL: 15 * time.Second,
+		Warm:     getenv("MARKET_WARM", "true") == "true",
 	}
 
 	if cfg.Mode != "live" && cfg.Mode != "mock" {
