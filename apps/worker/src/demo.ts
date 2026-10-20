@@ -156,8 +156,6 @@ export async function resetDemo(db: Database, market: MarketData, logger: Logger
     targetDate: monthsBack(-12),
     assumedReturn: 0.07,
   });
-  await goals.setHoldings(userId, house.id, { holdings: [{ instrumentKey: 'RELIANCE.NS', share: 1 }] });
-  await goals.setHoldings(userId, emergency.id, { holdings: [{ instrumentKey: 'NIFTYBEES.NS', share: 0.5 }] });
 
   // Backfilled at each instalment date's real NAV.
   for (const [i, sip] of SIPS.entries()) {
@@ -170,6 +168,15 @@ export async function resetDemo(db: Database, market: MarketData, logger: Logger
       goalId: i === 0 ? house.id : undefined,
     });
   }
+
+  // After the SIPs, so the fund they bought exists as a holding to count toward the goal.
+  await goals.setHoldings(userId, house.id, {
+    holdings: [
+      { instrumentKey: 'MF-122639', share: 1 },
+      { instrumentKey: 'RELIANCE.NS', share: 1 },
+    ],
+  });
+  await goals.setHoldings(userId, emergency.id, { holdings: [{ instrumentKey: 'NIFTYBEES.NS', share: 0.5 }] });
 
   for (const symbol of STARS) await watchlist.star(userId, symbol, {});
   return { trades };
