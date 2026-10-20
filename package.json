@@ -24,10 +24,13 @@
     "db:migrate": "npm run db:migrate -w @folio/api",
     "dev:market": "go -C services/market run ./cmd/market",
     "test:market": "go -C services/market test -count=1 ./...",
-    "stack:up": "docker compose up -d --build --wait"
+    "stack:up": "docker compose up -d --build --wait",
+    "bench": "node scripts/bench.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",
+    "@vitest/coverage-v8": "^5.0.5",
+    "autocannon": "^8.0.0",
     "concurrently": "^10.0.6",
     "typescript": "^7.0.2"
   }
