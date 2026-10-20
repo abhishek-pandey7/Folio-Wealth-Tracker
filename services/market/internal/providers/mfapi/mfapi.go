@@ -6,11 +6,13 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/shopspring/decimal"
 
+	"github.com/abhishek-pandey7/folio/services/market/internal/analytics"
 	"github.com/abhishek-pandey7/folio/services/market/internal/market"
 	"github.com/abhishek-pandey7/folio/services/market/internal/upstream"
 )
@@ -90,4 +92,50 @@ func (p *Provider) SearchFunds(ctx context.Context, query string) ([]market.Fund
 		matches = append(matches, market.FundMatch{SchemeCode: fmt.Sprint(r.SchemeCode), Name: r.SchemeName})
 	}
 	return matches, nil
+}
+
+// FundHistory returns a scheme's entire NAV history, oldest first. mfapi
+// serves it newest first, as strings, with DD-MM-YYYY dates.
+func (p *Provider) FundHistory(ctx context.Context, schemeCode string) (market.NavSeries, error) {
+	var res latestResponse
+	if err := p.client.GetJSON(ctx, fmt.Sprintf("%s/mf/%s", p.baseURL, url.PathEscape(schemeCode)), &res); err != nil {
+		return market.NavSeries{}, err
+	}
+	if res.Meta.SchemeName == "" || len(res.Data) == 0 {
+		return market.NavSeries{}, fmt.Errorf("%w: no mutual fund with scheme code %s", market.ErrNotFound, schemeCode)
+	}
+
+	points := make([]analytics.Point, 0, len(res.Data))
+	for i := len(res.Data) - 1; i >= 0; i-- {
+		d := res.Data[i]
+		date, err := time.Parse(navDateLayout, d.Date)
+		if err != nil {
+			continue
+		}
+		nav, err := strconv.ParseFloat(d.Nav, 64)
+		if err != nil || nav <= 0 {
+			continue
+		}
+		if n := len(points); n > 0 && !date.After(points[n-1].Date) {
+			continue // duplicate or out-of-order publication
+		}
+		points = append(points, analytics.Point{Date: date, Value: nav})
+	}
+	if len(points) == 0 {
+		return market.NavSeries{}, fmt.Errorf("%w: mfapi history for %s had no usable NAVs", market.ErrUpstream, schemeCode)
+	}
+
+	latest, err := decimal.NewFromString(res.Data[0].Nav)
+	if err != nil {
+		return market.NavSeries{}, fmt.Errorf("%w: mfapi NAV %q: %v", market.ErrUpstream, res.Data[0].Nav, err)
+	}
+	return market.NavSeries{
+		SchemeCode: schemeCode,
+		Name:       res.Meta.SchemeName,
+		FundHouse:  res.Meta.FundHouse,
+		Category:   res.Meta.SchemeCategory,
+		Nav:        latest.String(),
+		NavDate:    points[len(points)-1].Date.Format(time.DateOnly),
+		Points:     points,
+	}, nil
 }

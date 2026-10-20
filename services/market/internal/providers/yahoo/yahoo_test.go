@@ -131,3 +131,33 @@ func TestUpstreamOutageIsReportedAsUpstreamFailure(t *testing.T) {
 		t.Fatalf("err = %v, want ErrUpstream", err)
 	}
 }
+
+const dailyFixture = `{"chart":{"result":[{"meta":{"currency":"INR","symbol":"RELIANCE.NS","regularMarketPrice":1202.0,
+"chartPreviousClose":1211.2,"regularMarketTime":1792403978,"longName":"Reliance Industries Limited",
+"shortName":"RELIANCE INDUSTRIES LTD","fullExchangeName":"NSE","fiftyTwoWeekHigh":1611.8,"fiftyTwoWeekLow":1152.2},
+"timestamp":[1790400000,1790486400,1790572800,1790659200,1790676000],
+"indicators":{"quote":[{"close":[270.0,271.0,272.0,273.0,274.0]}],
+"adjclose":[{"adjclose":[265.5,null,267.25,268.0,269.75]}]}}],"error":null}}`
+
+func TestDailySeriesUsesAdjustedClosesAndMetadata(t *testing.T) {
+	p := newProvider(t, map[string]string{"/v8/finance/chart/RELIANCE.NS": dailyFixture})
+
+	s, err := p.DailySeries(t.Context(), "RELIANCE.NS")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if s.Name != "Reliance Industries Limited" || s.Exchange != "NSE" || s.Price != "1202" || *s.High52w != 1611.8 {
+		t.Errorf("metadata wrong: %+v", s)
+	}
+	// Adjusted closes, the null skipped, and two bars on 09-29 collapsed into the later one.
+	want := []float64{265.5, 267.25, 269.75}
+	if len(s.Points) != len(want) {
+		t.Fatalf("got %d points, want %d: %+v", len(s.Points), len(want), s.Points)
+	}
+	for i, v := range want {
+		if s.Points[i].Value != v {
+			t.Errorf("point %d = %v, want %v", i, s.Points[i].Value, v)
+		}
+	}
+}
