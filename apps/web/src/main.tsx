@@ -6,7 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router';
 import { App } from './App.js';
 import { ApiError } from './api.js';
-import { Locked } from './components/Locked.js';
+import { DemoBanner } from './components/DemoBanner.js';
 import { startSession } from './session.js';
 import './styles.css';
 
@@ -26,18 +26,15 @@ if (!root) {
   throw new Error('Missing #root element');
 }
 
-void startSession().then((session) => {
+void startSession().then((mode) => {
   createRoot(root).render(
     <StrictMode>
-      {session === 'locked' ? (
-        <Locked />
-      ) : (
-        <QueryClientProvider client={queryClient}>
-          <BrowserRouter>
-            <App />
-          </BrowserRouter>
-        </QueryClientProvider>
-      )}
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          {mode === 'demo' && <DemoBanner />}
+          <App />
+        </BrowserRouter>
+      </QueryClientProvider>
     </StrictMode>,
   );
 });

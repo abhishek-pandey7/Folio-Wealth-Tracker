@@ -156,6 +156,17 @@ input {
   background: var(--warn-bg);
 }
 
+/* Demo banner, for visitors without a session */
+.demo-banner {
+  padding: 8px 24px;
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: center;
+  color: var(--warn-text);
+  background: var(--warn-bg);
+  border-bottom: 1px solid var(--border);
+}
+
 /* Shell */
 .app {
   max-width: 1280px;

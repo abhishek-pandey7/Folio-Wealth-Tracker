@@ -7,7 +7,7 @@ Two Cloudflare pieces share one Postgres database:
 | Pages project `folio` | The web build, and the API in `functions/api` (only `/api/*` runs code) | https://folio-4u6.pages.dev |
 | Worker `folio-cron` | The scheduled market data jobs, every minute | None: `workers_dev` is off |
 
-Pages has no cron triggers, hence the second piece. Postgres runs on Neon's free tier, reached through Hyperdrive. A secret sign-in link lets only the owner in. Why it is built this way: [ARCHITECTURE.md, section 4.9](ARCHITECTURE.md#49-production-on-cloudflares-free-plan).
+Pages has no cron triggers, hence the second piece. Postgres runs on Neon's free tier, reached through Hyperdrive. Visitors see a public demo portfolio; a secret sign-in link shows the owner their own data. Why it is built this way: [ARCHITECTURE.md, section 4.9](ARCHITECTURE.md#49-production-on-cloudflares-free-plan).
 
 Nothing here needs a paid plan. Configs: `apps/worker/wrangler.jsonc` (Pages) and `apps/worker/cron/wrangler.jsonc` (cron).
 
@@ -39,7 +39,7 @@ printf 'you@example.com' | npx wrangler pages secret put OWNER_EMAIL --project-n
 npm run deploy -w @folio/worker    # web build, then the Pages deploy, then folio-cron
 ```
 
-Every API call returns 401 until a sign-in key is set, which is intended: the API refuses to serve data without one. A new cron Worker can take about five minutes before its first scheduled run.
+Until a sign-in key is set, everyone, including you, sees the public demo; the API never falls back to the owner's data. A new cron Worker can take about five minutes before its first scheduled run.
 
 ## 4. Sign-in link
 
@@ -56,10 +56,14 @@ npm run deploy -w @folio/worker
 Open the link once on each device. The key is in the URL fragment (after `#`), which browsers never send to a server, so it does not appear in Cloudflare's logs; the app posts it once, removes it from the address bar and history, and receives a session cookie (`HttpOnly`, `Secure`, `SameSite=Strict`) valid for 90 days.
 
 - **Lost a device, or the link leaked?** Run the same commands again: a new key signs every device out.
-- **Preview deployments** (`<hash>.folio-4u6.pages.dev`) have no key, so they stay locked.
+- **Preview deployments** (`<hash>.folio-4u6.pages.dev`) have no key, so they only show the demo.
 - Treat the link like a password: anyone who has it can open folio.
 
-## 5. First data
+## 5. The public demo
+
+Anyone without a session browses a sample portfolio as the user `demo@folio.invalid`, and can change it freely. The cron seeds it as soon as its eight stocks have statistics, then deletes and re-seeds it every night at 02:30 IST. Nothing to configure.
+
+## 6. First data
 
 From an empty database, all 141 curated symbols and the fund catalogue load within about an hour, and every fund's statistics within about two. Anything you open before then loads on demand, a few instruments per request.
 

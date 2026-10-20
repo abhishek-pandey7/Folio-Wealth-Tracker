@@ -4,8 +4,9 @@
 // work from data age, so a failed run is simply retried by a later one.
 
 import { type Database, InstrumentsService, type Logger, SipsService, schema } from '@folio/core';
-import { and, asc, eq, gte, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
+import { DEMO_SYMBOLS, demoSeeded, resetDemo } from './demo.js';
 import { HOUR, MINUTE } from './market/cache.js';
 import { CATALOG_JOB, EdgeMarket } from './market/edge.js';
 import { type CatalogState, catalogStep, FUNDS_BATCH, refreshFunds } from './market/funds.js';
@@ -20,6 +21,8 @@ const STATS_MAX_AGE_MS = 3 * HOUR;
 const FUND_MAX_AGE_MS = 12 * HOUR;
 /** SIP instalments are recorded once NAVs are out: AMFI publishes by about 23:00 IST (17:30 UTC). */
 const SIP_HOUR_UTC = 19;
+/** The public demo is put back at 02:30 IST, when nobody is likely to be mid-visit. */
+const DEMO_RESET_HOUR_UTC = 21;
 const CATALOG_HOUR_UTC = 18;
 
 /** Either exchange trading (NSE 03:45–10:00 UTC, NYSE 13:30–20:00 UTC on weekdays) means quotes move. */
@@ -51,6 +54,24 @@ export function jobs(db: Database, logger: Logger, defer: (p: Promise<unknown>) 
         const sips = new SipsService(db, new InstrumentsService(db, market), market, logger);
         const result = await sips.runAll();
         await setState(db, 'sips', { lastDate: today });
+        return result;
+      },
+    },
+    {
+      name: 'demo',
+      async run(now) {
+        // Seeds the public demo as soon as its symbols are priced, then puts it back every night.
+        const today = now.toISOString().slice(0, 10);
+        const state = await getState<{ lastReset?: string }>(db, 'demo');
+        const nightly = now.getUTCHours() >= DEMO_RESET_HOUR_UTC && state.lastReset !== today;
+        if (!nightly && (await demoSeeded(db))) return null;
+        const priced = await db
+          .select({ symbol: symbolData.symbol })
+          .from(symbolData)
+          .where(and(inArray(symbolData.symbol, DEMO_SYMBOLS), isNotNull(symbolData.stats)));
+        if (priced.length < DEMO_SYMBOLS.length) return null; // the stocks job will get there
+        const result = await resetDemo(db, market, logger);
+        await setState(db, 'demo', { lastReset: today });
         return result;
       },
     },
