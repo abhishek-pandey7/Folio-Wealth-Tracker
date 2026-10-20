@@ -15,11 +15,25 @@ export function useDebounced<T>(value: T, delayMs = 250): T {
 
 const WATCHLIST_KEY = ['watchlist'] as const;
 
-export type StarTarget = Pick<SymbolMatch, 'symbol'> & Partial<Pick<SymbolMatch, 'name' | 'type'>>;
+/** Something that can be starred: a ticker (stock, ETF, index) or a mutual fund scheme. */
+export type StarTarget =
+  | { kind: 'symbol'; symbol: string; name?: string; type?: SymbolMatch['type'] }
+  | { kind: 'fund'; code: string; name?: string };
+
+/** The watchlist key the server stores the target under. */
+export function starKey(target: StarTarget): string {
+  return target.kind === 'fund' ? `MF-${target.code}` : target.symbol;
+}
+
+function starPath(target: StarTarget): string {
+  return target.kind === 'fund'
+    ? `/api/watchlist/funds/${encodeURIComponent(target.code)}`
+    : `/api/watchlist/${encodeURIComponent(target.symbol)}`;
+}
 
 /**
- * Starred symbols, stored server-side. Star and unstar update the cache
- * optimistically so the UI responds instantly, roll back if the server
+ * Starred stocks and funds, stored server-side. Star and unstar update the
+ * cache optimistically so the UI responds instantly, roll back if the server
  * refuses (unknown symbol, unsupported currency), then refetch the truth.
  */
 export function useWatchlist() {
@@ -35,26 +49,31 @@ export function useWatchlist() {
     await queryClient.cancelQueries({ queryKey: WATCHLIST_KEY });
     return { previous: queryClient.getQueryData<WatchlistItem[]>(WATCHLIST_KEY) };
   };
-  const rollback = (_error: Error, _variables: unknown, context?: { previous?: WatchlistItem[] }) => {
+  const rollback = (_error: Error, _target: StarTarget, context?: { previous?: WatchlistItem[] }) => {
     queryClient.setQueryData(WATCHLIST_KEY, context?.previous);
   };
   const refetch = () => queryClient.invalidateQueries({ queryKey: WATCHLIST_KEY });
 
   const star = useMutation({
-    mutationFn: ({ symbol, name, type }: StarTarget) =>
-      putJson(`/api/watchlist/${encodeURIComponent(symbol)}`, { name, type }, WatchlistItemSchema),
+    mutationFn: (target: StarTarget) =>
+      putJson(
+        starPath(target),
+        target.kind === 'symbol' ? { name: target.name, type: target.type } : {},
+        WatchlistItemSchema,
+      ),
     onMutate: async (target) => {
       const context = await snapshot();
+      const key = starKey(target);
       const placeholder: WatchlistItem = {
-        symbol: target.symbol,
-        name: target.name ?? target.symbol,
-        assetClass: 'equity',
-        currency: 'INR', // replaced by the server's answer on refetch; not shown in the UI
+        symbol: key,
+        name: target.name ?? key,
+        assetClass: target.kind === 'fund' ? 'mutual_fund' : 'equity',
+        currency: 'INR', // replaced by the server's answer on refetch
         starredAt: new Date().toISOString(),
-        schemeCode: null,
+        schemeCode: target.kind === 'fund' ? target.code : null,
       };
       queryClient.setQueryData<WatchlistItem[]>(WATCHLIST_KEY, (items = []) =>
-        items.some((i) => i.symbol === target.symbol) ? items : [...items, placeholder],
+        items.some((i) => i.symbol === key) ? items : [...items, placeholder],
       );
       return context;
     },
@@ -63,12 +82,11 @@ export function useWatchlist() {
   });
 
   const unstar = useMutation({
-    mutationFn: (symbol: string) => deleteJson(`/api/watchlist/${encodeURIComponent(symbol)}`),
-    onMutate: async (symbol) => {
+    mutationFn: (target: StarTarget) => deleteJson(starPath(target)),
+    onMutate: async (target) => {
       const context = await snapshot();
-      queryClient.setQueryData<WatchlistItem[]>(WATCHLIST_KEY, (items = []) =>
-        items.filter((i) => i.symbol !== symbol),
-      );
+      const key = starKey(target);
+      queryClient.setQueryData<WatchlistItem[]>(WATCHLIST_KEY, (items = []) => items.filter((i) => i.symbol !== key));
       return context;
     },
     onError: rollback,
@@ -78,9 +96,11 @@ export function useWatchlist() {
   const items = query.data ?? [];
   return {
     items,
+    stocks: items.filter((i) => i.schemeCode === null),
+    funds: items.filter((i) => i.schemeCode !== null),
     isPending: query.isPending,
     error: query.error ?? star.error ?? unstar.error,
-    isStarred: (symbol: string) => items.some((i) => i.symbol === symbol),
+    isStarred: (target: StarTarget) => items.some((i) => i.symbol === starKey(target)),
     star: star.mutate,
     unstar: unstar.mutate,
   };
