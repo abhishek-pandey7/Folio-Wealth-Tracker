@@ -51,6 +51,7 @@ export function useWatchlist() {
         assetClass: 'equity',
         currency: 'INR', // replaced by the server's answer on refetch; not shown in the UI
         starredAt: new Date().toISOString(),
+        schemeCode: null,
       };
       queryClient.setQueryData<WatchlistItem[]>(WATCHLIST_KEY, (items = []) =>
         items.some((i) => i.symbol === target.symbol) ? items : [...items, placeholder],

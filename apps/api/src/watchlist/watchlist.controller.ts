@@ -4,7 +4,7 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { CurrentUserService } from '../users/current-user.service.js';
 import { WatchlistService } from './watchlist.service.js';
 
-/** Starred symbols. PUT and DELETE are idempotent, so retries and double clicks are safe. */
+/** Starred stocks, ETFs, indices and mutual funds. PUT and DELETE are idempotent, so retries and double clicks are safe. */
 @Controller('watchlist')
 export class WatchlistController {
   constructor(
@@ -15,6 +15,17 @@ export class WatchlistController {
   @Get()
   async list(): Promise<WatchlistItem[]> {
     return this.watchlist.list(await this.currentUser.id());
+  }
+
+  @Put('funds/:schemeCode')
+  async starFund(@Param('schemeCode') schemeCode: string): Promise<WatchlistItem> {
+    return this.watchlist.starFund(await this.currentUser.id(), schemeCode);
+  }
+
+  @Delete('funds/:schemeCode')
+  @HttpCode(204)
+  async unstarFund(@Param('schemeCode') schemeCode: string): Promise<void> {
+    await this.watchlist.unstarFund(await this.currentUser.id(), schemeCode);
   }
 
   @Put(':symbol')

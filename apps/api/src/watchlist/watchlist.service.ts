@@ -1,5 +1,6 @@
 import {
   type AssetClass,
+  FundSchema,
   QuoteSchema,
   type StarRequest,
   type SymbolMatch,
@@ -18,6 +19,15 @@ const ASSET_CLASS_BY_TYPE: Record<SymbolMatch['type'], AssetClass> = {
   mutual_fund: 'mutual_fund',
   index: 'index',
 };
+
+/**
+ * Mutual funds have AMFI scheme codes, not tickers. They are stored as
+ * instruments under a prefixed symbol so both live in one watchlist.
+ */
+const FUND_PREFIX = 'MF-';
+const SCHEME_CODE = /^\d{1,8}$/;
+
+type NewInstrument = typeof instruments.$inferInsert;
 
 @Injectable()
 export class WatchlistService {
@@ -40,7 +50,11 @@ export class WatchlistService {
       .where(eq(watchlistItems.userId, userId))
       .orderBy(asc(watchlistItems.createdAt), asc(instruments.symbol));
 
-    return rows.map((row) => ({ ...row, starredAt: row.starredAt.toISOString() }));
+    return rows.map((row) => ({
+      ...row,
+      starredAt: row.starredAt.toISOString(),
+      schemeCode: row.symbol.startsWith(FUND_PREFIX) ? row.symbol.slice(FUND_PREFIX.length) : null,
+    }));
   }
 
   /** Idempotent: starring an already-starred symbol returns the existing item. */
@@ -49,37 +63,66 @@ export class WatchlistService {
 
     // Pricing the symbol proves it exists and gives its currency; neither is taken from the client.
     const quote = await this.gateway.get(`/v1/quotes/${encodeURIComponent(symbol)}`, QuoteSchema);
-    const name = request.name ?? quote.symbol;
 
-    await this.db.transaction(async (tx) => {
-      const [instrument] = await tx
-        .insert(instruments)
-        .values({
-          symbol: quote.symbol,
-          name,
-          assetClass: request.type ? ASSET_CLASS_BY_TYPE[request.type] : 'equity',
-          currency: quote.currency,
-        })
-        // Keep an existing name unless the client sent a real one.
-        .onConflictDoUpdate({ target: instruments.symbol, set: request.name ? { name } : { symbol: quote.symbol } })
-        .returning({ id: instruments.id });
+    return this.upsertAndStar(
+      userId,
+      {
+        symbol: quote.symbol,
+        name: request.name ?? quote.symbol,
+        assetClass: request.type ? ASSET_CLASS_BY_TYPE[request.type] : 'equity',
+        currency: quote.currency,
+      },
+      // Keep an existing name unless the client sent a real one.
+      request.name !== undefined,
+    );
+  }
 
-      if (!instrument) {
-        throw new Error(`Could not upsert instrument ${quote.symbol}`);
-      }
-      await tx.insert(watchlistItems).values({ userId, instrumentId: instrument.id }).onConflictDoNothing();
-    });
+  /** Stars a mutual fund by scheme code. Name and category come from the fund data, not the client. */
+  async starFund(userId: string, rawCode: string): Promise<WatchlistItem> {
+    const code = this.parseSchemeCode(rawCode);
+    const fund = await this.gateway.get(`/v1/funds/${code}`, FundSchema);
 
-    const item = (await this.list(userId)).find((i) => i.symbol === quote.symbol);
-    if (!item) {
-      throw new Error(`Starred ${quote.symbol} but could not read it back`);
-    }
-    return item;
+    return this.upsertAndStar(
+      userId,
+      { symbol: `${FUND_PREFIX}${code}`, name: fund.name, assetClass: 'mutual_fund', currency: 'INR' },
+      true,
+    );
   }
 
   /** Idempotent: unstarring something that is not starred is a no-op. */
   async unstar(userId: string, rawSymbol: string): Promise<void> {
-    const symbol = this.parseSymbol(rawSymbol);
+    await this.remove(userId, this.parseSymbol(rawSymbol));
+  }
+
+  async unstarFund(userId: string, rawCode: string): Promise<void> {
+    await this.remove(userId, `${FUND_PREFIX}${this.parseSchemeCode(rawCode)}`);
+  }
+
+  private async upsertAndStar(userId: string, values: NewInstrument, updateName: boolean): Promise<WatchlistItem> {
+    await this.db.transaction(async (tx) => {
+      const [instrument] = await tx
+        .insert(instruments)
+        .values(values)
+        .onConflictDoUpdate({
+          target: instruments.symbol,
+          set: updateName ? { name: values.name } : { symbol: values.symbol },
+        })
+        .returning({ id: instruments.id });
+
+      if (!instrument) {
+        throw new Error(`Could not upsert instrument ${values.symbol}`);
+      }
+      await tx.insert(watchlistItems).values({ userId, instrumentId: instrument.id }).onConflictDoNothing();
+    });
+
+    const item = (await this.list(userId)).find((i) => i.symbol === values.symbol);
+    if (!item) {
+      throw new Error(`Starred ${values.symbol} but could not read it back`);
+    }
+    return item;
+  }
+
+  private async remove(userId: string, symbol: string): Promise<void> {
     const instrumentIds = this.db
       .select({ id: instruments.id })
       .from(instruments)
@@ -96,5 +139,13 @@ export class WatchlistService {
       throw new BadRequestException(`Invalid ticker symbol: ${raw}`);
     }
     return parsed.data;
+  }
+
+  private parseSchemeCode(raw: string): string {
+    const code = raw.trim();
+    if (!SCHEME_CODE.test(code)) {
+      throw new BadRequestException(`Invalid mutual fund scheme code: ${raw}`);
+    }
+    return code;
   }
 }
