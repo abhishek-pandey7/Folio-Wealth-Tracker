@@ -1,34 +1,22 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
+  // The Pages project: the web build plus the API (functions/api). Scheduled
+  // jobs run in a separate Worker, cron/wrangler.jsonc, because Pages has no cron.
   "name": "folio",
-  "main": "src/index.ts",
+  "pages_build_output_dir": "../web/dist",
   "compatibility_date": "2026-09-30",
   // pg needs Node's net and crypto APIs.
   "compatibility_flags": ["nodejs_compat"],
-
-  // The web build. Only /api/* reaches the Worker; every other path is a file,
-  // or index.html for client-side routes. Static requests are free and unlimited.
-  "assets": {
-    "directory": "../web/dist",
-    "binding": "ASSETS",
-    "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
-  },
 
   // Created with --caching-disabled: Hyperdrive's query cache would serve
   // reads up to a minute old, so a transaction just added would not show.
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
-      "id": "REPLACE_WITH_HYPERDRIVE_ID",
+      "id": "5c530460e68849e196b3a1f78feb2026",
       "localConnectionString": "postgres://folio:folio@127.0.0.1:5442/folio"
     }
-  ],
+  ]
 
-  // One trigger, every minute; jobs.ts picks the most urgent job each time.
-  "triggers": { "crons": ["* * * * *"] },
-
-  "observability": { "enabled": true }
-
-  // Secrets (wrangler secret put): OWNER_EMAIL, ACCESS_TEAM_DOMAIN, ACCESS_AUD.
+  // Secrets (wrangler pages secret put): OWNER_EMAIL, ACCESS_TEAM_DOMAIN, ACCESS_AUD.
 }

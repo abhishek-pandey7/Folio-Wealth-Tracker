@@ -145,7 +145,12 @@ export function upMonths(points: Point[], n: number): { up: number; total: numbe
     const d = new Date(ms);
     return d.getUTCFullYear() * 12 + d.getUTCMonth();
   };
-  for (const p of points) {
+  // Only the last n month-ends and the one before them count; skipping straight
+  // there saves walking five years of points (this runs cold, once a minute).
+  const last = points.at(-1);
+  const from = last ? Math.max(indexAtOrBefore(points, addDate(last.date, 0, -(n + 1), 0)), 0) : 0;
+  for (let i = from; i < points.length; i++) {
+    const p = points[i] as Point;
     const k = ends.length;
     if (k > 0 && monthOf((ends[k - 1] as Point).date) === monthOf(p.date)) ends[k - 1] = p;
     else ends.push(p);

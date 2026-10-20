@@ -1,0 +1,24 @@
+{
+  "$schema": "../../../node_modules/wrangler/config-schema.json",
+  "name": "folio-cron",
+  "main": "../src/cron.ts",
+  "compatibility_date": "2026-09-30",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // No public URL: this Worker only runs on its schedule.
+  "workers_dev": false,
+  "preview_urls": false,
+
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "5c530460e68849e196b3a1f78feb2026",
+      "localConnectionString": "postgres://folio:folio@127.0.0.1:5442/folio"
+    }
+  ],
+
+  // One trigger, every minute; jobs.ts picks the most urgent job each time.
+  "triggers": { "crons": ["* * * * *"] },
+
+  "observability": { "enabled": true }
+}

@@ -1,13 +1,13 @@
 import { consoleLogger } from '@folio/core';
-import { app } from './app.js';
 import { connect } from './db.js';
 import type { Env } from './env.js';
 import { runDue } from './jobs.js';
 
+/**
+ * The folio-cron Worker: scheduled jobs only, with no public URL. Pages, which
+ * serves the site and the API, has no cron triggers of its own.
+ */
 export default {
-  // Static assets answer every path except /api/* before the Worker runs (see wrangler.jsonc).
-  fetch: app.fetch,
-
   async scheduled(_controller, env, ctx) {
     const { db, close } = await connect(env.HYPERDRIVE.connectionString);
     const deferred: Promise<unknown>[] = [];
@@ -20,4 +20,4 @@ export default {
       ctx.waitUntil(Promise.allSettled(deferred).then(close));
     }
   },
-} satisfies ExportedHandler<Env>;
+} satisfies ExportedHandler<Pick<Env, 'HYPERDRIVE'>>;
