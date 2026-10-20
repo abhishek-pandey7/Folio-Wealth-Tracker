@@ -6,6 +6,8 @@ export const envSchema = z.object({
   DATABASE_URL: z.string().min(1).default('postgres://folio:folio@localhost:5442/folio'),
   MARKET_GATEWAY_URL: z.url().default('http://127.0.0.1:8081'),
   MARKET_GATEWAY_TIMEOUT_MS: z.coerce.number().int().positive().default(8_000),
+  /** Single-owner mode until auth lands: all data belongs to this user. */
+  OWNER_EMAIL: z.email().default('owner@folio.local'),
 });
 
 export type Env = z.infer<typeof envSchema>;
