@@ -287,7 +287,7 @@ export function TransactionDialog({ open, onClose, initialInstrument, initialAcc
   );
 }
 
-function Field({
+export function Field({
   label,
   error,
   hint,
@@ -310,16 +310,19 @@ function Field({
   );
 }
 
-/** Finds a stock, ETF or index (Yahoo) or a mutual fund (AMFI) to transact in. */
-function InstrumentPicker({
+/** Finds a stock, ETF or index (Yahoo) or a mutual fund (AMFI). fundsOnly limits it to funds, for SIPs. */
+export function InstrumentPicker({
   value,
   onChange,
   error,
+  fundsOnly = false,
 }: {
   value: PickedInstrument | undefined;
   onChange: (value: PickedInstrument | undefined) => void;
   error?: string;
+  fundsOnly?: boolean;
 }) {
+  const label = fundsOnly ? 'Mutual fund' : 'Stock, ETF or fund';
   const id = useId();
   const [text, setText] = useState('');
   const query = useDebounced(text.trim());
@@ -327,7 +330,7 @@ function InstrumentPicker({
   const symbols = useQuery({
     queryKey: ['search', query],
     queryFn: () => getJson(`/api/market/search?q=${encodeURIComponent(query)}`, z.array(SymbolMatchSchema)),
-    enabled,
+    enabled: enabled && !fundsOnly,
     staleTime: 60 * 60_000,
   });
   const funds = useQuery({
@@ -340,7 +343,7 @@ function InstrumentPicker({
   if (value) {
     return (
       <div className="field">
-        <span className="field-label">Stock, ETF or fund</span>
+        <span className="field-label">{label}</span>
         <div className="picked">
           <span className="truncate strong">{value.label}</span>
           <button type="button" className="link-button" onClick={() => onChange(undefined)}>
@@ -351,13 +354,15 @@ function InstrumentPicker({
     );
   }
 
-  const stockResults = (symbols.data ?? []).filter((m) => m.type !== 'mutual_fund' && m.type !== 'index').slice(0, 5);
+  const stockResults = fundsOnly
+    ? []
+    : (symbols.data ?? []).filter((m) => m.type !== 'mutual_fund' && m.type !== 'index').slice(0, 5);
   const fundResults = (funds.data ?? []).filter((f) => /direct/i.test(f.name) && /growth/i.test(f.name)).slice(0, 5);
 
   return (
     <div className="field">
       <label htmlFor={id} className="field-label">
-        Stock, ETF or fund
+        {label}
       </label>
       <div className="search">
         <MagnifyingGlassIcon className="search-icon" size={16} aria-hidden />
@@ -367,7 +372,7 @@ function InstrumentPicker({
           autoComplete="off"
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="Search by name or ticker"
+          placeholder={fundsOnly ? 'Search by fund name' : 'Search by name or ticker'}
         />
         {enabled && (
           <div className="search-results">
@@ -398,7 +403,7 @@ function InstrumentPicker({
                 <span className="tag">Fund</span>
               </button>
             ))}
-            {symbols.data && funds.data && stockResults.length + fundResults.length === 0 && (
+            {funds.data && (fundsOnly || symbols.data) && stockResults.length + fundResults.length === 0 && (
               <p className="search-note">No matches</p>
             )}
           </div>
