@@ -12,6 +12,7 @@ import {
 import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { z } from 'zod';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
+import { SipsService } from '../plan/sips.service.js';
 import { CurrentUserService } from '../users/current-user.service.js';
 import { AccountsService } from './accounts.service.js';
 import { TransactionsService } from './transactions.service.js';
@@ -56,12 +57,15 @@ export class AccountsController {
 export class TransactionsController {
   constructor(
     private readonly transactions: TransactionsService,
+    private readonly sips: SipsService,
     private readonly currentUser: CurrentUserService,
   ) {}
 
   @Get()
   async list(@Query(new ZodValidationPipe(AccountFilterSchema)) query: AccountFilter): Promise<Transaction[]> {
-    return this.transactions.list(await this.currentUser.id(), query.accountId);
+    const userId = await this.currentUser.id();
+    await this.sips.catchUp(userId);
+    return this.transactions.list(userId, query.accountId);
   }
 
   @Post()
@@ -80,11 +84,15 @@ export class TransactionsController {
 export class PortfolioController {
   constructor(
     private readonly valuation: ValuationService,
+    private readonly sips: SipsService,
     private readonly currentUser: CurrentUserService,
   ) {}
 
   @Get()
   async summary(@Query(new ZodValidationPipe(AccountFilterSchema)) query: AccountFilter): Promise<PortfolioSummary> {
-    return this.valuation.summary(await this.currentUser.id(), query.accountId);
+    const userId = await this.currentUser.id();
+    // Record any SIP instalments that fell due since the last visit before valuing.
+    await this.sips.catchUp(userId);
+    return this.valuation.summary(userId, query.accountId);
   }
 }

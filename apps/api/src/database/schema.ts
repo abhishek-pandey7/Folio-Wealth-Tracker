@@ -1,6 +1,8 @@
 import {
+  type AnyPgColumn,
   date,
   index,
+  integer,
   numeric,
   pgEnum,
   pgTable,
@@ -98,11 +100,14 @@ export const transactions = pgTable(
     fees: money('fees').notNull().default('0'),
     currency: currency('currency').notNull(),
     notes: text('notes'),
+    /** Set when the entry is a SIP instalment; one instalment per SIP per date. */
+    sipId: uuid('sip_id').references((): AnyPgColumn => sips.id, { onDelete: 'set null' }),
     createdAt: createdAt(),
   },
   (t) => [
     index('transactions_portfolio_date_idx').on(t.portfolioId, t.tradeDate),
     index('transactions_instrument_idx').on(t.instrumentId),
+    uniqueIndex('transactions_sip_date_idx').on(t.sipId, t.tradeDate),
   ],
 );
 
@@ -133,4 +138,60 @@ export const watchlistItems = pgTable(
     createdAt: createdAt(),
   },
   (t) => [primaryKey({ columns: [t.userId, t.instrumentId] })],
+);
+
+export const sipStatus = pgEnum('sip_status', ['active', 'paused', 'stopped']);
+
+/** A savings goal; projections assume the stated annual return. */
+export const goals = pgTable(
+  'goals',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    targetAmount: numeric('target_amount', { precision: 20, scale: 2 }).notNull(),
+    targetDate: date('target_date'),
+    assumedReturn: numeric('assumed_return', { precision: 5, scale: 4 }).notNull().default('0.1000'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('goals_user_name_idx').on(t.userId, t.name)],
+);
+
+/** A monthly mutual fund SIP. Instalments are recorded as ordinary buy transactions. */
+export const sips = pgTable('sips', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  portfolioId: uuid('portfolio_id')
+    .notNull()
+    .references(() => portfolios.id, { onDelete: 'cascade' }),
+  instrumentId: uuid('instrument_id')
+    .notNull()
+    .references(() => instruments.id),
+  goalId: uuid('goal_id').references(() => goals.id, { onDelete: 'set null' }),
+  amount: numeric('amount', { precision: 20, scale: 2 }).notNull(),
+  dayOfMonth: integer('day_of_month').notNull(),
+  startDate: date('start_date').notNull(),
+  /** Instalments are recorded from here: the start date, or the day a paused SIP resumed. */
+  activeFrom: date('active_from').notNull(),
+  status: sipStatus('status').notNull().default('active'),
+  createdAt: createdAt(),
+});
+
+/** How much of a holding counts toward a goal; one holding can be split across goals. */
+export const goalHoldings = pgTable(
+  'goal_holdings',
+  {
+    goalId: uuid('goal_id')
+      .notNull()
+      .references(() => goals.id, { onDelete: 'cascade' }),
+    instrumentId: uuid('instrument_id')
+      .notNull()
+      .references(() => instruments.id),
+    share: numeric('share', { precision: 5, scale: 4 }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.goalId, t.instrumentId] })],
 );

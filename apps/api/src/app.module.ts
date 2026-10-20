@@ -4,6 +4,7 @@ import { validateEnv } from './config/env.js';
 import { DatabaseModule } from './database/database.module.js';
 import { HealthController } from './health/health.controller.js';
 import { MarketModule } from './market/market.module.js';
+import { PlanModule } from './plan/plan.module.js';
 import { PortfolioModule } from './portfolio/portfolio.module.js';
 import { WatchlistModule } from './watchlist/watchlist.module.js';
 
@@ -19,6 +20,7 @@ import { WatchlistModule } from './watchlist/watchlist.module.js';
     MarketModule,
     WatchlistModule,
     PortfolioModule,
+    PlanModule,
   ],
   controllers: [HealthController],
 })
