@@ -396,20 +396,19 @@ Notes:
 - [x] Allocation drift calculation (decimal-exact, tested)
 - [x] Web dashboard: watchlist, price chart, mutual fund lookup, health and FX status, light and dark themes
 - [x] Analytics and screener: returns (3y/5y annualized), volatility, drawdown, risk-adjusted return, up months; curated stock, sector and ETF universes; AMFI fund categories; background cache warming
-- [x] Starred watchlist in Postgres: idempotent `PUT`/`DELETE`, symbols verified and currency taken from the gateway (never the client), optimistic UI with rollback, single-owner mode until auth
+- [x] Portfolio: broker accounts; buy, sell and dividend ledger validated on every write (no overselling, no deletes that break later entries, per-account row locks against concurrent sales); FIFO lots; live valuation in rupees with XIRR, allocation by asset class, market and sector
+- [x] Starred watchlist in Postgres (stocks, ETFs, indices and mutual funds): idempotent `PUT`/`DELETE`, symbols verified and currency taken from the gateway (never the client), optimistic UI with rollback, single-owner mode until auth
 
 ### Next (in order)
 
-1. **Ledger entry:** add buy/sell/dividend transactions per portfolio; derive holdings and cost basis.
-2. **Portfolio valuation:** live value per holding and per portfolio, converted to the user's base currency.
-3. **Returns:** XIRR across cash flows (the correct measure for SIPs and irregular investments), not simple % gain.
-4. **Indian capital gains:** FIFO tax lots, short-term vs long-term classification by holding period, and tax-loss harvesting candidates.
-5. **Rebalancing:** turn drift into a suggested list of trades to get back on target.
-6. **Broker imports:** parse Zerodha/Groww tradebook CSVs and CAMS/KFintech CAS statements into ledger entries.
-7. **Price alerts:** notify when a starred symbol crosses a threshold (background job in the gateway).
-8. **Starring mutual funds** (scheme codes, not ticker symbols) alongside stocks.
-9. **Auth** (OIDC) and per-user data scoping.
-10. **Playwright** end-to-end tests against mock mode.
+1. **SIPs and goals:** recurring SIPs that record their own instalments; goals with progress and the monthly investment needed at a stated assumed return.
+2. **Price alerts and notes:** targets on starred symbols with in-app notifications; a buy reason per holding.
+3. **Indian capital gains:** FIFO tax lots, short-term vs long-term classification by holding period, and tax-loss harvesting candidates.
+4. **Rebalancing:** turn drift into a suggested list of trades to get back on target.
+5. **Broker imports:** parse Zerodha/Groww tradebook CSVs and CAMS/KFintech CAS statements into ledger entries.
+6. **Net worth:** EPF, PPF, FDs, gold and loans alongside market holdings.
+7. **Auth** (OIDC) and per-user data scoping.
+8. **Playwright** end-to-end tests against mock mode.
 
 ### Deliberately not doing (yet)
 
