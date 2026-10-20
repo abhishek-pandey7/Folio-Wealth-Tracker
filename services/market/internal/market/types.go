@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/abhishek-pandey7/folio/services/market/internal/analytics"
 )
 
 // Sentinel errors. Providers wrap these so the HTTP layer can map them to
@@ -158,4 +160,66 @@ func NormalizeQuery(raw string) (string, error) {
 		return "", fmt.Errorf("%w: search query must be 2 to 64 characters", ErrInvalid)
 	}
 	return q, nil
+}
+
+// DailySeries is up to five years of daily closes for one symbol, adjusted for
+// splits and dividends so that returns computed from it are total returns.
+type DailySeries struct {
+	Symbol   string
+	Name     string
+	Exchange string
+	Currency string
+	Price    string // latest traded price, decimal string
+	High52w  *float64
+	Low52w   *float64
+	Points   []analytics.Point
+}
+
+// Scheme is one row of AMFI's NAV file.
+type Scheme struct {
+	Code      string
+	Name      string
+	FundHouse string
+	Category  string // AMFI heading, e.g. "Equity Scheme - Large Cap Fund"
+	Plan      string
+	Option    string
+	Nav       string
+	NavDate   time.Time
+}
+
+// NavSeries is a mutual fund's full NAV history, oldest first.
+type NavSeries struct {
+	SchemeCode string
+	Name       string
+	FundHouse  string
+	Category   string
+	Nav        string
+	NavDate    string
+	Points     []analytics.Point
+}
+
+// SymbolStats is everything the screener and stock page show about a symbol.
+type SymbolStats struct {
+	Symbol   string   `json:"symbol"`
+	Name     string   `json:"name"`
+	Exchange string   `json:"exchange"`
+	Currency string   `json:"currency"`
+	Sector   string   `json:"sector"`
+	Price    string   `json:"price"`
+	High52w  *float64 `json:"high52w"`
+	Low52w   *float64 `json:"low52w"`
+	// FromHigh52w is how far the price is below its 52-week high, in percent (zero or negative).
+	FromHigh52w *float64          `json:"fromHigh52w"`
+	Metrics     analytics.Metrics `json:"metrics"`
+}
+
+// FundStats is everything the fund screener and fund page show about a scheme.
+type FundStats struct {
+	SchemeCode string            `json:"schemeCode"`
+	Name       string            `json:"name"`
+	FundHouse  string            `json:"fundHouse"`
+	Category   string            `json:"category"`
+	Nav        string            `json:"nav"`
+	NavDate    string            `json:"navDate"`
+	Metrics    analytics.Metrics `json:"metrics"`
 }

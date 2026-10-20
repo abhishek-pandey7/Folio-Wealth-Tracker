@@ -27,9 +27,12 @@ func (f *fakeQuotes) Quote(_ context.Context, symbol string) (Quote, error) {
 
 func (f *fakeQuotes) History(context.Context, string, Range) (History, error) { return History{}, nil }
 func (f *fakeQuotes) Search(context.Context, string) ([]SymbolMatch, error)   { return nil, nil }
+func (f *fakeQuotes) DailySeries(context.Context, string) (DailySeries, error) {
+	return DailySeries{}, ErrNotFound
+}
 
 func newTestService(q *fakeQuotes) *Service {
-	return NewService(q, nil, nil, Config{QuoteTTL: 15 * time.Second, BatchConcurrency: 4})
+	return NewService(q, nil, nil, nil, Config{QuoteTTL: 15 * time.Second, BatchConcurrency: 4})
 }
 
 func TestQuoteNormalizesAndValidatesSymbols(t *testing.T) {
