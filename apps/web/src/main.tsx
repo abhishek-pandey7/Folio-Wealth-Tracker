@@ -6,6 +6,8 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router';
 import { App } from './App.js';
 import { ApiError } from './api.js';
+import { Locked } from './components/Locked.js';
+import { startSession } from './session.js';
 import './styles.css';
 
 const queryClient = new QueryClient({
@@ -24,12 +26,18 @@ if (!root) {
   throw new Error('Missing #root element');
 }
 
-createRoot(root).render(
-  <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
-    </QueryClientProvider>
-  </StrictMode>,
-);
+void startSession().then((session) => {
+  createRoot(root).render(
+    <StrictMode>
+      {session === 'locked' ? (
+        <Locked />
+      ) : (
+        <QueryClientProvider client={queryClient}>
+          <BrowserRouter>
+            <App />
+          </BrowserRouter>
+        </QueryClientProvider>
+      )}
+    </StrictMode>,
+  );
+});

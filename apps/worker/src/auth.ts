@@ -1,43 +1,79 @@
-// Cloudflare Access sits in front of the whole hostname and only lets the
-// owner's email through. The Worker checks Access's signed JWT as well, so a
-// request that somehow bypassed Access (a misconfigured policy, a route added
-// later) is still refused. Fails closed: without Access configured, nothing passes.
+// Single-owner sign-in with a secret link. The owner opens
+// https://<site>/#key=<LOGIN_KEY> once per device; the web app posts the key
+// here and gets a signed session cookie. The key travels in the URL fragment,
+// which browsers never send to a server, so it stays out of request logs.
+//
+// LOGIN_KEY is 256 random bits (a Pages secret), so guessing it is not a
+// practical attack and needs no rate limit. Rotating it signs every device out,
+// because sessions are signed with it. Fails closed: without a key, nothing passes.
 
-import { ForbiddenError } from '@folio/core';
-import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { UnauthorizedError } from '@folio/core';
 import type { Env } from './env.js';
 
-// Per isolate: Access rotates its signing keys rarely, and jose caches them.
-const keySets = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
+const COOKIE = 'folio_session';
+const SESSION_DAYS = 90;
+const MIN_KEY_LENGTH = 32;
 
-function keysFor(teamDomain: string) {
-  let keys = keySets.get(teamDomain);
-  if (!keys) {
-    keys = createRemoteJWKSet(new URL('/cdn-cgi/access/certs', teamDomain));
-    keySets.set(teamDomain, keys);
-  }
-  return keys;
+const encoder = new TextEncoder();
+
+const base64url = (bytes: ArrayBuffer) =>
+  btoa(String.fromCharCode(...new Uint8Array(bytes)))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+
+async function sign(key: string, message: string): Promise<string> {
+  const hmac = await crypto.subtle.importKey('raw', encoder.encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, [
+    'sign',
+  ]);
+  return base64url(await crypto.subtle.sign('HMAC', hmac, encoder.encode(message)));
 }
 
-/** The verified email of the caller, or throws ForbiddenError. */
-export async function authenticate(request: Request, env: Env): Promise<string> {
+/** Compares secrets without leaking, through timing, how many leading characters matched. */
+async function same(a: string, b: string): Promise<boolean> {
+  const [x, y] = await Promise.all([
+    crypto.subtle.digest('SHA-256', encoder.encode(a)),
+    crypto.subtle.digest('SHA-256', encoder.encode(b)),
+  ]);
+  const p = new Uint8Array(x);
+  const q = new Uint8Array(y);
+  let diff = 0;
+  for (let i = 0; i < p.length; i++) diff |= (p[i] as number) ^ (q[i] as number);
+  return diff === 0;
+}
+
+function loginKey(env: Env): string {
+  if (!env.LOGIN_KEY || env.LOGIN_KEY.length < MIN_KEY_LENGTH) throw new UnauthorizedError('Sign-in is not configured');
+  return env.LOGIN_KEY;
+}
+
+const payload = (expires: number) => `folio-session-v1:${expires}`;
+
+/** Checks the sign-in key and returns the Set-Cookie header for a new session. */
+export async function signIn(key: unknown, env: Env, now = Date.now()): Promise<string> {
+  const expected = loginKey(env);
+  if (typeof key !== 'string' || !(await same(key, expected))) throw new UnauthorizedError('Invalid sign-in link');
+  const expires = Math.floor(now / 1000) + SESSION_DAYS * 86_400;
+  const token = `${expires}.${await sign(expected, payload(expires))}`;
+  // Strict: the browser never sends it on a request started by another site, which also rules out CSRF.
+  return `${COOKIE}=${token}; Max-Age=${SESSION_DAYS * 86_400}; Path=/; HttpOnly; Secure; SameSite=Strict`;
+}
+
+export const signOut = () => `${COOKIE}=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Strict`;
+
+/** The owner's email if the request carries a valid session, or throws UnauthorizedError. */
+export async function authenticate(request: Request, env: Env, now = Date.now()): Promise<string> {
   if (env.ALLOW_UNAUTHENTICATED === 'true') return env.OWNER_EMAIL;
+  const key = loginKey(env);
 
-  const teamDomain = env.ACCESS_TEAM_DOMAIN?.replace(/\/$/, '');
-  if (!teamDomain || !env.ACCESS_AUD) throw new ForbiddenError('Cloudflare Access is not configured');
-
-  const token = request.headers.get('cf-access-jwt-assertion');
-  if (!token) throw new ForbiddenError('Sign in through Cloudflare Access');
-
-  let email: unknown;
-  try {
-    const { payload } = await jwtVerify(token, keysFor(teamDomain), { issuer: teamDomain, audience: env.ACCESS_AUD });
-    email = payload.email;
-  } catch {
-    throw new ForbiddenError('Invalid Cloudflare Access token');
-  }
-  if (typeof email !== 'string' || email.toLowerCase() !== env.OWNER_EMAIL.toLowerCase()) {
-    throw new ForbiddenError('This account is not allowed');
-  }
+  const token = (request.headers.get('cookie') ?? '')
+    .split(';')
+    .map((c) => c.trim())
+    .find((c) => c.startsWith(`${COOKIE}=`))
+    ?.slice(COOKIE.length + 1);
+  const [expires, signature] = token?.split('.') ?? [];
+  if (!expires || !signature || !/^\d+$/.test(expires)) throw new UnauthorizedError();
+  if (Number(expires) * 1000 <= now) throw new UnauthorizedError('Session expired; open your sign-in link again');
+  if (!(await same(signature, await sign(key, payload(Number(expires)))))) throw new UnauthorizedError();
   return env.OWNER_EMAIL;
 }
