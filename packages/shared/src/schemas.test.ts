@@ -114,7 +114,8 @@ describe('analytics contracts', () => {
 
   it('rejects a returns map missing a period', () => {
     const broken = JSON.parse(JSON.stringify(screen)) as typeof screen;
-    delete (broken.rows[0]?.metrics.returns as Record<string, number>)['3y'];
+    const returns: Record<string, number> = broken.rows[0]?.metrics.returns ?? {};
+    delete returns['3y'];
     expect(ScreenResultSchema.safeParse(broken).success).toBe(false);
   });
 
