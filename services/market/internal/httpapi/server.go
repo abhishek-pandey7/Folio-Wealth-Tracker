@@ -32,6 +32,7 @@ type MarketService interface {
 	FundCategories(ctx context.Context) ([]market.FundCategoryInfo, error)
 	FundStats(ctx context.Context, schemeCode string) (market.FundStats, error)
 	FundHistory(ctx context.Context, schemeCode, rng string) (market.History, error)
+	FundNavsOn(ctx context.Context, schemeCode string, dates []string) ([]market.NavOn, error)
 	FundScreen(ctx context.Context, q market.FundScreenQuery) (market.FundScreenResult, error)
 	CacheStats() map[string]cache.Stats
 	WarmReports() map[string]market.WarmReport
@@ -63,6 +64,7 @@ func NewHandler(svc MarketService, logger *slog.Logger, mode string) http.Handle
 	mux.HandleFunc("GET /v1/funds/screener", h.fundScreener)
 	mux.HandleFunc("GET /v1/funds/{code}/stats", h.fundStats)
 	mux.HandleFunc("GET /v1/funds/{code}/history", h.fundHistory)
+	mux.HandleFunc("GET /v1/funds/{code}/navs", h.fundNavs)
 
 	return requestID(accessLog(logger, recoverPanics(logger, mux)))
 }
@@ -118,6 +120,10 @@ func (h *handler) fundStats(w http.ResponseWriter, r *http.Request) {
 
 func (h *handler) fundHistory(w http.ResponseWriter, r *http.Request) {
 	respond(w, r, h.logger)(h.svc.FundHistory(r.Context(), r.PathValue("code"), r.URL.Query().Get("range")))
+}
+
+func (h *handler) fundNavs(w http.ResponseWriter, r *http.Request) {
+	respond(w, r, h.logger)(h.svc.FundNavsOn(r.Context(), r.PathValue("code"), splitList(r.URL.Query().Get("on"))))
 }
 
 func splitList(raw string) []string {

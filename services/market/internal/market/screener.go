@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"math"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -376,6 +377,61 @@ func (s *Service) FundStats(ctx context.Context, rawCode string) (FundStats, err
 	}
 	stats, _, err := s.fundStatsCache.Get(ctx, code, s.loadFundStats(code))
 	return stats, err
+}
+
+// NavOn is the NAV that applied to a purchase requested on a given date.
+type NavOn struct {
+	Requested string `json:"requested"`
+	Date      string `json:"date"`
+	Nav       string `json:"nav"`
+}
+
+// maxNavDates bounds one request: ten years of monthly SIP instalments fit comfortably.
+const maxNavDates = 400
+
+// navSettleWindow is how long after a requested date a NAV may be found. Longer
+// gaps mean the fund had no NAV then (not yet launched, or a data gap).
+const navSettleWindow = 10 * 24 * time.Hour
+
+// FundNavsOn returns, for each requested date, the first NAV published on or
+// after it: a SIP due on a holiday is processed at the next business day's
+// NAV. Dates whose NAV is not published yet (today, before the evening update)
+// are left out, so a caller can retry them later.
+func (s *Service) FundNavsOn(ctx context.Context, rawCode string, rawDates []string) ([]NavOn, error) {
+	code, err := NormalizeSchemeCode(rawCode)
+	if err != nil {
+		return nil, err
+	}
+	if len(rawDates) == 0 || len(rawDates) > maxNavDates {
+		return nil, fmt.Errorf("%w: between 1 and %d dates are required", ErrInvalid, maxNavDates)
+	}
+	dates := make([]time.Time, len(rawDates))
+	for i, raw := range rawDates {
+		d, err := time.Parse(time.DateOnly, strings.TrimSpace(raw))
+		if err != nil {
+			return nil, fmt.Errorf("%w: %q is not a YYYY-MM-DD date", ErrInvalid, raw)
+		}
+		dates[i] = d
+	}
+
+	series, err := s.navSeries(ctx, code)
+	if err != nil {
+		return nil, err
+	}
+	points := series.Points
+	out := make([]NavOn, 0, len(dates))
+	for _, d := range dates {
+		i := sort.Search(len(points), func(i int) bool { return !points[i].Date.Before(d) })
+		if i == len(points) || points[i].Date.Sub(d) > navSettleWindow {
+			continue
+		}
+		out = append(out, NavOn{
+			Requested: d.Format(time.DateOnly),
+			Date:      points[i].Date.Format(time.DateOnly),
+			Nav:       strconv.FormatFloat(points[i].Value, 'f', -1, 64),
+		})
+	}
+	return out, nil
 }
 
 // FundHistory returns NAV points for a chart, cut to the requested range.
