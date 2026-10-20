@@ -7,6 +7,7 @@ import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Database } from '../database/database.module.js';
 import * as schema from '../database/schema.js';
+import { InstrumentsService } from '../instruments/instruments.service.js';
 import type { MarketGatewayClient } from '../market/market-gateway.client.js';
 import { WatchlistService } from './watchlist.service.js';
 
@@ -72,7 +73,10 @@ describe.skipIf(!databaseUrl)('WatchlistService (Postgres)', () => {
   beforeAll(() => {
     pool = new Pool({ connectionString: databaseUrl });
     db = drizzle({ client: pool, schema });
-    service = new WatchlistService(db, { get: gatewayGet } as unknown as MarketGatewayClient);
+    service = new WatchlistService(
+      db,
+      new InstrumentsService(db, { get: gatewayGet } as unknown as MarketGatewayClient),
+    );
   });
 
   afterAll(async () => {
