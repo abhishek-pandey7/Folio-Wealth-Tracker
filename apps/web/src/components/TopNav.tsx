@@ -5,6 +5,7 @@ import { StatusBar } from './StatusBar.js';
 
 const LINKS = [
   { to: '/portfolio', label: 'Portfolio', end: false },
+  { to: '/goals', label: 'Goals', end: false },
   { to: '/', label: 'Markets', end: true },
   { to: '/discover', label: 'Discover', end: false },
   { to: '/funds', label: 'Funds', end: false },

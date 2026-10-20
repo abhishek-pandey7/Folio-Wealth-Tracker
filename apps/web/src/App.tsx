@@ -3,6 +3,7 @@ import { TopNav } from './components/TopNav.js';
 import { DiscoverPage } from './pages/DiscoverPage.js';
 import { FundPage } from './pages/FundPage.js';
 import { FundsPage } from './pages/FundsPage.js';
+import { GoalsPage } from './pages/GoalsPage.js';
 import { MarketsPage } from './pages/MarketsPage.js';
 import { PortfolioPage } from './pages/PortfolioPage.js';
 import { StarredPage } from './pages/StarredPage.js';
@@ -23,6 +24,7 @@ export function App() {
           <Route path="/fund/:code" element={<FundPage />} />
           <Route path="/starred" element={<StarredPage />} />
           <Route path="/portfolio" element={<PortfolioPage />} />
+          <Route path="/goals" element={<GoalsPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>
