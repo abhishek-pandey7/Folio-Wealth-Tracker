@@ -223,3 +223,71 @@ func TestFailedRefreshKeepsTheExistingEntry(t *testing.T) {
 		}
 	})
 }
+
+func TestGetFastServesAnExpiredValueAndRefreshesInTheBackground(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		c := New[string](Options{TTL: 15 * time.Second, StaleFor: time.Hour})
+		_, v1 := counter("v1")
+		c.Get(t.Context(), "AAPL", v1)
+		time.Sleep(time.Minute)
+
+		release := make(chan struct{})
+		slowV2 := func(context.Context) (string, error) {
+			<-release // upstream is slow; the caller must not wait for it
+			return "v2", nil
+		}
+		got, err := c.GetFast(t.Context(), "AAPL", slowV2)
+		if err != nil || got != "v1" {
+			t.Fatalf("got (%q, %v); want the expired v1 at once", got, err)
+		}
+
+		close(release)
+		synctest.Wait() // the background refresh finishes
+		if got, _, _ := c.Get(t.Context(), "AAPL", v1); got != "v2" {
+			t.Fatalf("after revalidation got %q, want v2", got)
+		}
+		if c.Stats().Revalidated != 1 {
+			t.Fatalf("revalidated = %d, want 1", c.Stats().Revalidated)
+		}
+	})
+}
+
+func TestGetFastStartsOneRefreshForABurstOfReaders(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		c := New[string](Options{TTL: 15 * time.Second, StaleFor: time.Hour})
+		_, v1 := counter("v1")
+		c.Get(t.Context(), "AAPL", v1)
+		time.Sleep(time.Minute)
+
+		release := make(chan struct{})
+		var loads atomic.Int32
+		load := func(context.Context) (string, error) {
+			loads.Add(1)
+			<-release
+			return "v2", nil
+		}
+		for range 20 {
+			c.GetFast(t.Context(), "AAPL", load)
+		}
+		synctest.Wait()
+		close(release)
+		synctest.Wait()
+
+		if n := loads.Load(); n != 1 {
+			t.Fatalf("%d upstream loads for 20 readers, want 1", n)
+		}
+	})
+}
+
+func TestGetFastLoadsInLineOnATrueMiss(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		c := New[string](Options{TTL: time.Minute})
+		calls, load := counter("v1")
+
+		got, err := c.GetFast(t.Context(), "AAPL", load)
+
+		if err != nil || got != "v1" || calls.Load() != 1 {
+			t.Fatalf("got (%q, %v) after %d loads; a miss must load synchronously", got, err, calls.Load())
+		}
+	})
+}

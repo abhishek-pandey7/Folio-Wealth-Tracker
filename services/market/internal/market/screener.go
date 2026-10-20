@@ -254,7 +254,7 @@ func (s *Service) Screen(ctx context.Context, q ScreenQuery) (ScreenResult, erro
 			}
 			row := ScreenRow{SymbolStats: stats}
 			// Live overlay; the statistics are still useful if the quote fails.
-			if quote, err := s.Quote(ctx, sym); err == nil {
+			if quote, err := s.quoteFast(ctx, sym); err == nil {
 				row.Price = quote.Price
 				if pct, err := strconv.ParseFloat(quote.ChangePercent, 64); err == nil {
 					row.ChangePercent = &pct
@@ -619,6 +619,10 @@ func (s *Service) WarmStocks(ctx context.Context) WarmReport {
 	for _, sym := range universe.AllSymbols() {
 		g.Go(func() error {
 			_, err := s.statsCache.Refresh(ctx, sym, s.loadStats(sym))
+			if err == nil {
+				// Live prices too, so the first ranking after a restart does not load them in line.
+				_, err = s.quoteCache.Refresh(ctx, sym, func(ctx context.Context) (Quote, error) { return s.quotes.Quote(ctx, sym) })
+			}
 			mu.Lock()
 			if err != nil {
 				report.Failed++
