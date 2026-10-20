@@ -56,7 +56,7 @@ export class GoalsService {
         .where(inArray(sips.goalId, ids)),
       this.valuation.summary(userId),
     ]);
-    const valueOf = new Map(summary.holdings.map((h) => [h.instrumentKey, new Decimal(h.valueInr)]));
+    const valueByKey = new Map(summary.holdings.map((h) => [h.instrumentKey, new Decimal(h.valueInr)]));
 
     return rows.map((goal) => {
       const holdings = links
@@ -64,7 +64,7 @@ export class GoalsService {
         .map((l) => {
           const share = Number(l.share);
           // A sold holding contributes nothing, but the link is kept so it is visible.
-          const value = (valueOf.get(l.symbol) ?? new Decimal(0)).times(share);
+          const value = (valueByKey.get(l.symbol) ?? new Decimal(0)).times(share);
           return { instrumentKey: l.symbol, name: l.name, share, valueInr: value.toFixed(2) };
         });
       const goalSips = linkedSips
