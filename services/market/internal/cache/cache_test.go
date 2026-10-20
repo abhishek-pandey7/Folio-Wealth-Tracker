@@ -186,3 +186,40 @@ func TestCallerCancellationDoesNotAbortSharedLoad(t *testing.T) {
 		}
 	})
 }
+
+func TestRefreshRenewsAFreshEntry(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		c := New[string](Options{TTL: time.Minute})
+		_, v1 := counter("v1")
+		c.Get(t.Context(), "AAPL", v1)
+
+		if _, err := c.Refresh(t.Context(), "AAPL", func(context.Context) (string, error) { return "v2", nil }); err != nil {
+			t.Fatal(err)
+		}
+
+		calls, load := counter("unused")
+		got, _, _ := c.Get(t.Context(), "AAPL", load)
+		if got != "v2" || calls.Load() != 0 {
+			t.Fatalf("got %q after %d loads; Refresh should have replaced the entry", got, calls.Load())
+		}
+	})
+}
+
+func TestFailedRefreshKeepsTheExistingEntry(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		c := New[string](Options{TTL: time.Minute})
+		_, v1 := counter("v1")
+		c.Get(t.Context(), "AAPL", v1)
+
+		if _, err := c.Refresh(t.Context(), "AAPL", func(context.Context) (string, error) {
+			return "", errors.New("upstream down")
+		}); err == nil {
+			t.Fatal("expected the refresh error")
+		}
+
+		got, _, _ := c.Get(t.Context(), "AAPL", v1)
+		if got != "v1" {
+			t.Fatalf("got %q; a failed refresh must not drop the cached value", got)
+		}
+	})
+}
