@@ -2,6 +2,7 @@ import { formatMoney } from '@folio/shared';
 import { ArrowLeftIcon } from '@phosphor-icons/react';
 import { Link, useParams } from 'react-router';
 import { shortHouse, shortName } from '../components/FundTable.js';
+import { PositionPanel } from '../components/PositionPanel.js';
 import { PriceChart } from '../components/PriceChart.js';
 import { StarButton } from '../components/StarButton.js';
 import { ReturnsStrip, RiskPanel } from '../components/StatGrid.js';
@@ -47,6 +48,11 @@ export function FundPage() {
       </header>
 
       {stats.error && <p className="inline-error">{stats.error.message}</p>}
+
+      <PositionPanel
+        instrumentKey={`MF-${code}`}
+        picked={{ ref: { kind: 'fund', code }, label: fund ? shortName(fund.name) : `Scheme ${code}` }}
+      />
 
       <PriceChart source={{ kind: 'fund', code }} />
 
