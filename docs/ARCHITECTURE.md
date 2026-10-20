@@ -49,7 +49,7 @@ flowchart LR
 
 | Component | Responsibility | Owns |
 | --- | --- | --- |
-| `apps/web` | UI. Never talks to anything except the API. | Nothing persistent (yet: watchlist is in `localStorage`) |
+| `apps/web` | UI. Never talks to anything except the API. | Nothing persistent |
 | `apps/api` | Public API, domain logic (portfolios, ledger), validation of every gateway response | PostgreSQL |
 | `services/market` | The only component that talks to third-party market data. Caching, rate limiting, failover to stale data. | In-memory caches |
 | `packages/shared` | API contracts (zod) and domain math (`Decimal`) used by both the API and the web app | Nothing at runtime |
@@ -281,6 +281,7 @@ The current design runs comfortably on one machine. If it had to serve many user
 | Gateway providers | Parsing, null handling, float noise, 404 and 429 mapping, unsupported currency | `httptest` servers replaying trimmed real responses, never the network |
 | Gateway HTTP | Every route's status codes, error shape, request-ID echo, panic recovery | `httptest` against the mock provider |
 | API | Gateway client error mapping and contract enforcement; health via the real Nest DI container | Vitest with stubbed `fetch` |
+| API + database | Starring: idempotency, ordering, per-user isolation, nothing written for unpriceable symbols | Vitest against a real migrated Postgres (`*.int.spec.ts`); CI runs a Postgres service container |
 | CI | Biome, type-check, all tests, `go test -race`, production builds, Docker image build | GitHub Actions on every PR |
 
 **Gap:** no browser end-to-end tests yet. Playwright against the mock data mode is the next addition.
@@ -360,17 +361,18 @@ Notes:
 - [x] Ledger-first schema and migrations
 - [x] Allocation drift calculation (decimal-exact, tested)
 - [x] Web dashboard: watchlist, price chart, mutual fund lookup, health and FX status, light and dark themes
+- [x] Starred watchlist in Postgres: idempotent `PUT`/`DELETE`, symbols verified and currency taken from the gateway (never the client), optimistic UI with rollback, single-owner mode until auth
 
 ### Next (in order)
 
-1. **Starred watchlist stored server-side** (uses `watchlist_items`), star from search or the chart.
-2. **Ledger entry:** add buy/sell/dividend transactions per portfolio; derive holdings and cost basis.
-3. **Portfolio valuation:** live value per holding and per portfolio, converted to the user's base currency.
-4. **Returns:** XIRR across cash flows (the correct measure for SIPs and irregular investments), not simple % gain.
-5. **Indian capital gains:** FIFO tax lots, short-term vs long-term classification by holding period, and tax-loss harvesting candidates.
-6. **Rebalancing:** turn drift into a suggested list of trades to get back on target.
-7. **Broker imports:** parse Zerodha/Groww tradebook CSVs and CAMS/KFintech CAS statements into ledger entries.
-8. **Price alerts:** notify when a starred symbol crosses a threshold (background job in the gateway).
+1. **Ledger entry:** add buy/sell/dividend transactions per portfolio; derive holdings and cost basis.
+2. **Portfolio valuation:** live value per holding and per portfolio, converted to the user's base currency.
+3. **Returns:** XIRR across cash flows (the correct measure for SIPs and irregular investments), not simple % gain.
+4. **Indian capital gains:** FIFO tax lots, short-term vs long-term classification by holding period, and tax-loss harvesting candidates.
+5. **Rebalancing:** turn drift into a suggested list of trades to get back on target.
+6. **Broker imports:** parse Zerodha/Groww tradebook CSVs and CAMS/KFintech CAS statements into ledger entries.
+7. **Price alerts:** notify when a starred symbol crosses a threshold (background job in the gateway).
+8. **Starring mutual funds** (scheme codes, not ticker symbols) alongside stocks.
 9. **Auth** (OIDC) and per-user data scoping.
 10. **Playwright** end-to-end tests against mock mode.
 

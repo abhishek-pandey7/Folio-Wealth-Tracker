@@ -8,8 +8,9 @@ import { useWatchlist } from './hooks.js';
 
 export function App() {
   const watchlist = useWatchlist();
-  const [selected, setSelected] = useState<string | undefined>(watchlist.symbols[0]);
-  const active = selected && watchlist.symbols.includes(selected) ? selected : watchlist.symbols[0];
+  // Selection is independent of starring: unstarring the open chart keeps it open so it can be re-starred.
+  const [selected, setSelected] = useState<string | undefined>();
+  const active = selected ?? watchlist.items[0]?.symbol;
 
   return (
     <div className="app">
@@ -27,12 +28,16 @@ export function App() {
             <span className="muted small">NSE, BSE and US</span>
           </header>
           <SymbolSearch
-            onPick={(symbol) => {
-              watchlist.add(symbol);
-              setSelected(symbol);
+            isStarred={watchlist.isStarred}
+            onPick={(match) => {
+              if (!watchlist.isStarred(match.symbol)) {
+                watchlist.star(match);
+              }
+              setSelected(match.symbol);
             }}
           />
-          <Watchlist symbols={watchlist.symbols} selected={active} onSelect={setSelected} onRemove={watchlist.remove} />
+          {watchlist.error && <p className="inline-error">{watchlist.error.message}</p>}
+          <Watchlist items={watchlist.items} loading={watchlist.isPending} selected={active} onSelect={setSelected} />
         </section>
 
         {active ? (
@@ -40,7 +45,7 @@ export function App() {
         ) : (
           <section className="panel chart-panel empty">
             <p className="strong">No symbol selected</p>
-            <p className="muted">Add something to your watchlist to see its price history.</p>
+            <p className="muted">Star something to see its price history here.</p>
           </section>
         )}
 

@@ -4,6 +4,7 @@ import { validateEnv } from './config/env.js';
 import { DatabaseModule } from './database/database.module.js';
 import { HealthController } from './health/health.controller.js';
 import { MarketModule } from './market/market.module.js';
+import { WatchlistModule } from './watchlist/watchlist.module.js';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { MarketModule } from './market/market.module.js';
     }),
     DatabaseModule,
     MarketModule,
+    WatchlistModule,
   ],
   controllers: [HealthController],
 })
