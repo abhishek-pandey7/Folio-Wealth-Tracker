@@ -1,29 +1,42 @@
-import { BatchQuotesSchema, Decimal, formatMoney, formatPercent } from '@folio/shared';
-import { XIcon } from '@phosphor-icons/react';
+import { BatchQuotesSchema, Decimal, formatMoney, formatPercent, type WatchlistItem } from '@folio/shared';
 import { useQuery } from '@tanstack/react-query';
 import { getJson } from '../api.js';
+import { StarButton } from './StarButton.js';
 
 interface Props {
-  symbols: string[];
+  items: WatchlistItem[];
+  loading: boolean;
   selected: string | undefined;
   onSelect: (symbol: string) => void;
-  onRemove: (symbol: string) => void;
 }
 
-export function Watchlist({ symbols, selected, onSelect, onRemove }: Props) {
+export function Watchlist({ items, loading, selected, onSelect }: Props) {
+  const symbols = items.map((i) => i.symbol);
+
   // One batched request for the whole list; the gateway fans it out concurrently.
   const { data, error, isPending, dataUpdatedAt } = useQuery({
     queryKey: ['quotes', symbols],
     queryFn: () => getJson(`/api/market/quotes?symbols=${encodeURIComponent(symbols.join(','))}`, BatchQuotesSchema),
     enabled: symbols.length > 0,
     refetchInterval: 15_000,
+    placeholderData: (previous) => previous, // keep prices on screen while a starred symbol is added
   });
 
-  if (symbols.length === 0) {
+  if (loading) {
+    return (
+      <div className="watchlist-loading" aria-busy="true">
+        {[0, 1, 2].map((i) => (
+          <span key={i} className="skeleton skeleton-row" />
+        ))}
+      </div>
+    );
+  }
+
+  if (items.length === 0) {
     return (
       <div className="empty">
-        <p className="strong">Nothing on your watchlist yet</p>
-        <p className="muted">Search for a stock, ETF or index above to start tracking it.</p>
+        <p className="strong">No starred symbols yet</p>
+        <p className="muted">Search above and pick a stock, ETF or index to star it.</p>
       </div>
     );
   }
@@ -44,12 +57,13 @@ export function Watchlist({ symbols, selected, onSelect, onRemove }: Props) {
               Today
             </th>
             <th scope="col">
-              <span className="sr-only">Remove</span>
+              <span className="sr-only">Star</span>
             </th>
           </tr>
         </thead>
         <tbody>
-          {symbols.map((symbol) => {
+          {items.map((item) => {
+            const { symbol } = item;
             const quote = quotes.get(symbol);
             const failure = data?.errors[symbol];
             const up = quote ? !new Decimal(quote.change).isNegative() : true;
@@ -62,13 +76,14 @@ export function Watchlist({ symbols, selected, onSelect, onRemove }: Props) {
                 tabIndex={0}
                 aria-selected={symbol === selected}
               >
-                <td>
+                <td className="symbol-cell">
                   <span className="mono strong">{symbol}</span>
                   {quote?.stale && (
                     <span className="tag warn" title="The live source failed, so this is the last good price">
                       delayed
                     </span>
                   )}
+                  {item.name !== symbol && <span className="row-sub truncate">{item.name}</span>}
                 </td>
                 <td className="num">
                   {quote ? (
@@ -100,17 +115,7 @@ export function Watchlist({ symbols, selected, onSelect, onRemove }: Props) {
                   )}
                 </td>
                 <td className="row-action">
-                  <button
-                    type="button"
-                    className="icon-button"
-                    aria-label={`Remove ${symbol}`}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onRemove(symbol);
-                    }}
-                  >
-                    <XIcon size={14} weight="bold" />
-                  </button>
+                  <StarButton target={item} />
                 </td>
               </tr>
             );

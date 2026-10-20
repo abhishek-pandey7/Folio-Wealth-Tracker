@@ -286,7 +286,7 @@ input {
 }
 .search-results button {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 12px;
   width: 100%;
@@ -633,4 +633,58 @@ tr:focus-within .icon-button,
   .status-bar .fx .muted {
     display: none;
   }
+}
+
+/* Starring. Filled stars use the accent, never a second colour. */
+.star-button {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  color: var(--text-muted);
+  background: none;
+  border: 0;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+  transition:
+    color 0.15s var(--ease),
+    background-color 0.15s var(--ease);
+}
+.star-button:hover {
+  color: var(--text);
+  background: var(--border);
+}
+.star-button.on {
+  color: var(--accent);
+}
+.result-star {
+  color: var(--text-muted);
+}
+.result-star.on {
+  color: var(--accent);
+}
+.chart-symbol {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: -2px;
+}
+.symbol-cell {
+  max-width: 0;
+  width: 46%;
+}
+.row-sub {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.watchlist-loading {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+.skeleton.skeleton-row {
+  display: block;
+  height: 40px;
+  border-radius: var(--radius-control);
 }

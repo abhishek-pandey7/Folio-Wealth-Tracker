@@ -9,6 +9,7 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { type MouseEvent, useMemo, useState } from 'react';
 import { getJson } from '../api.js';
+import { StarButton } from './StarButton.js';
 
 const W = 640;
 const H = 260;
@@ -62,7 +63,10 @@ export function PriceChart({ symbol }: { symbol: string }) {
     <section className="panel chart-panel" aria-label={`${symbol} price history`}>
       <header className="chart-head">
         <div className="chart-title">
-          <h2 className="mono">{symbol}</h2>
+          <div className="chart-symbol">
+            <h2 className="mono">{symbol}</h2>
+            <StarButton target={{ symbol }} />
+          </div>
           {data && shown ? (
             <p className="chart-readout">
               <span className="figure">{formatMoney(shown.close, data.currency)}</span>
