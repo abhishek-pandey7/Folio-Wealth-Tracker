@@ -4,6 +4,7 @@ import { DiscoverPage } from './pages/DiscoverPage.js';
 import { FundPage } from './pages/FundPage.js';
 import { FundsPage } from './pages/FundsPage.js';
 import { MarketsPage } from './pages/MarketsPage.js';
+import { PortfolioPage } from './pages/PortfolioPage.js';
 import { StarredPage } from './pages/StarredPage.js';
 import { StockPage } from './pages/StockPage.js';
 
@@ -21,6 +22,7 @@ export function App() {
           <Route path="/funds/:categoryId" element={<FundsPage />} />
           <Route path="/fund/:code" element={<FundPage />} />
           <Route path="/starred" element={<StarredPage />} />
+          <Route path="/portfolio" element={<PortfolioPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>

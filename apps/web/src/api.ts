@@ -40,3 +40,12 @@ export async function putJson<S extends z.ZodType>(path: string, body: unknown, 
 export async function deleteJson(path: string): Promise<void> {
   await request(path, { method: 'DELETE' });
 }
+
+export async function postJson<S extends z.ZodType>(path: string, body: unknown, schema: S): Promise<z.infer<S>> {
+  const result = await request(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return schema.parse(result);
+}

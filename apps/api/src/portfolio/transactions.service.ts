@@ -91,10 +91,10 @@ export class TransactionsService {
 
     const id = await this.db.transaction(async (tx) => {
       await this.lockAccount(tx, input.accountId);
-      const history = await this.entriesFor(tx, input.accountId, instrument.id);
+      const history = await this.entriesFor(tx, input.accountId, instrument);
       const draft: LedgerEntry = {
         id: 'new',
-        instrumentKey: instrument.id, // same key as the stored history it is replayed with
+        instrumentKey: instrument.symbol, // same key as the stored history it is replayed with
         type: input.type,
         tradeDate: input.tradeDate,
         quantity: input.quantity,
@@ -135,18 +135,25 @@ export class TransactionsService {
   /** Deletes an entry unless a later entry depends on it (a sale of the units it bought). */
   async remove(userId: string, id: string): Promise<void> {
     const [row] = await this.db
-      .select({ portfolioId: transactions.portfolioId, instrumentId: transactions.instrumentId })
+      .select({
+        portfolioId: transactions.portfolioId,
+        instrumentId: transactions.instrumentId,
+        symbol: instruments.symbol,
+      })
       .from(transactions)
       .innerJoin(portfolios, eq(transactions.portfolioId, portfolios.id))
+      .innerJoin(instruments, eq(transactions.instrumentId, instruments.id))
       .where(and(eq(transactions.id, id), eq(portfolios.userId, userId)));
     if (!row?.instrumentId) {
       throw new NotFoundException('Transaction not found');
     }
-    const { portfolioId, instrumentId } = row;
+    const { portfolioId, instrumentId, symbol } = row;
 
     await this.db.transaction(async (tx) => {
       await this.lockAccount(tx, portfolioId);
-      const remaining = (await this.entriesFor(tx, portfolioId, instrumentId)).filter((e) => e.id !== id);
+      const remaining = (await this.entriesFor(tx, portfolioId, { id: instrumentId, symbol })).filter(
+        (e) => e.id !== id,
+      );
       this.assertValid(remaining, 'Deleting this would leave a later entry impossible: ');
       await tx.delete(transactions).where(eq(transactions.id, id));
     });
@@ -160,17 +167,22 @@ export class TransactionsService {
     await tx.select({ id: portfolios.id }).from(portfolios).where(eq(portfolios.id, accountId)).for('update');
   }
 
-  private async entriesFor(db: DbOrTx, accountId: string, instrumentId: string): Promise<LedgerEntry[]> {
+  /** One account's history for one instrument, keyed by symbol so ledger errors read naturally. */
+  private async entriesFor(
+    db: DbOrTx,
+    accountId: string,
+    instrument: { id: string; symbol: string },
+  ): Promise<LedgerEntry[]> {
     const rows = await db
       .select()
       .from(transactions)
-      .where(and(eq(transactions.portfolioId, accountId), eq(transactions.instrumentId, instrumentId)))
+      .where(and(eq(transactions.portfolioId, accountId), eq(transactions.instrumentId, instrument.id)))
       .orderBy(asc(transactions.createdAt));
     return rows
       .filter((r) => SUPPORTED_TYPES.has(r.type))
       .map((r) => ({
         id: r.id,
-        instrumentKey: instrumentId,
+        instrumentKey: instrument.symbol,
         type: r.type as LedgerEntry['type'],
         tradeDate: r.tradeDate,
         quantity: r.quantity,

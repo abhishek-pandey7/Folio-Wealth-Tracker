@@ -1,5 +1,6 @@
 import { ArrowLeftIcon } from '@phosphor-icons/react';
 import { Link, useParams } from 'react-router';
+import { PositionPanel } from '../components/PositionPanel.js';
 import { PriceChart } from '../components/PriceChart.js';
 import { StarButton } from '../components/StarButton.js';
 import { ReturnsStrip, RiskPanel } from '../components/StatGrid.js';
@@ -49,6 +50,16 @@ export function StockPage() {
       </header>
 
       {stats.error && <p className="inline-error">{stats.error.message}</p>}
+
+      {!isIndex && (
+        <PositionPanel
+          instrumentKey={stats.data?.symbol ?? symbol}
+          picked={{
+            ref: { kind: 'symbol', symbol, name: stats.data?.name },
+            label: stats.data ? `${symbol}, ${stats.data.name}` : symbol,
+          }}
+        />
+      )}
 
       <PriceChart source={{ kind: 'symbol', symbol }} isIndex={isIndex} />
 
