@@ -336,22 +336,38 @@ The local stack (NestJS, the Go gateway, Postgres in Docker) is the development 
 ```mermaid
 flowchart LR
     B[Browser] -->|Cloudflare Access: owner's email only| W
-    subgraph W[One Worker]
-      A[Static assets: the web build]
-      H[Hono API over packages/core]
-      C[Cron, every minute]
+    subgraph W[Pages project: folio-4u6.pages.dev]
+      A[Static files: the web build]
+      H[functions/api: Hono over packages/core]
     end
+    C[Worker folio-cron: every minute, no public URL]
     H --> P[(Neon Postgres via Hyperdrive)]
     C --> P
     C --> Y[Yahoo, mfapi, AMFI, Frankfurter]
     H -. only what is missing .-> Y
 ```
 
+Pages serves the site and the API; only `/api/*` runs code, so page loads are static and free. Pages has no cron triggers, so the scheduled jobs live in a second Worker with its public URL turned off. Both share one Hyperdrive config.
+
 **One app, two deployments.** Business logic lives in `packages/core`, which knows nothing about NestJS or Workers: services take a Drizzle database and a `MarketData` port and throw plain `AppError`s. Locally the port is backed by the Go gateway; on Workers by `EdgeMarket`, which reads precomputed tables. The Hono routes mirror the Nest controllers route for route, so the web app does not know which one it talks to.
 
 **Requests only read.** `symbol_data` and `fund_data` hold each instrument's latest statistics and quote; a screen is one `SELECT` and a sort. A request fetches inline only what is missing (a newly starred symbol, a fund nobody has held), capped so it stays inside the budget; anything beyond the cap is queued for the cron job and reported as "still loading". Searches, chart history, FX and latest NAVs go through `market_cache`, a stale-while-revalidate cache in Postgres: a stale entry is served at once and refreshed after the response via `waitUntil`, and served on provider errors.
 
-**One cron trigger, many small jobs.** Every minute, the scheduler runs the single most urgent job, chosen from data age: SIP instalments (daily, after NAVs publish), quotes (every 10 min while NSE or NYSE is open, hourly otherwise), stock statistics (4 symbols per run, refreshed every 3 h), the AMFI fund catalogue (daily, 256 KB per run), fund statistics (5 per run, every 12 h). Batch sizes come from measurement: parsing five years of daily closes and computing statistics costs ~1.6 ms per symbol and ~1.1 ms per fund. Failures for a specific instrument (delisted, a segregated fund with zero NAV) are stored and retried after 6 h; a provider outage backs the job off for 5 minutes so it cannot starve the others.
+**One cron trigger, many small jobs.** Every minute, the scheduler runs the single most urgent job, chosen from data age: SIP instalments (daily, after NAVs publish), quotes (every 10 min while NSE or NYSE is open, hourly otherwise), stock statistics (4 symbols per run, refreshed every 3 h), the AMFI fund catalogue (daily, 256 KB per run), fund statistics (5 per run, every 12 h). Failures for a specific instrument (delisted, a segregated fund with zero NAV) are stored and retried after 6 h; a provider outage backs the job off for 5 minutes so it cannot starve the others.
+
+**CPU, measured in production.** My first estimate (~1.6 ms per symbol) came from benchmarks that ran each function many times, so V8 had already optimised them. A once-a-minute job doesn't run that way: it usually lands in a cold isolate, where code runs for the first time. `wrangler tail` showed the real cost:
+
+| What ran (cold isolate) | CPU |
+| --- | --- |
+| First version, stocks job (4 symbols) | 62–115 ms |
+| After two fixes (below) | 31–42 ms |
+| Any job, even quotes from small JSON | ~30 ms floor |
+| Probe: connect and `select 1` only | 15 ms cold, 2 ms warm |
+| Probe: handler returns at once | 0 ms (module startup is not billed to the run) |
+
+The two fixes: series keep numeric dates (formatting 1,250 ISO date strings per symbol had cost more than the statistics), and the up-months count reads only the last 13 months instead of five years. What remains is V8 compiling pg's protocol code and Drizzle's query builder in each new isolate. Any Postgres-backed Worker pays this, and the cost falls to a few ms once an isolate is warm.
+
+That is still above the free plan's 10 ms. Cloudflare allows each isolate "some built-in flexibility" for infrequent overruns but terminates Workers that exceed the limit consistently. Since most runs land in fresh isolates, runs have so far all ended `ok`, but this rests on Cloudflare's tolerance, not a guarantee. If runs start ending `exceededCpu` (visible in `wrangler tail` and the dashboard), the fixes in order of cost are: send the cron's queries over Neon's HTTP driver, which skips the pg protocol code; or Workers Paid ($5/month, 30 s CPU).
 
 **AMFI in chunks.** The 1.5 MB NAV file takes ~20 ms to parse, twice the budget. The catalogue job reads it with HTTP range requests, parses whole lines only (a chunk ends at its last newline, so no line or UTF-8 character is split), and carries the parser's position (current heading and fund house) in `job_state`. The pass pins the file's ETag and starts over if AMFI replaces the file mid-pass.
 
@@ -447,7 +463,7 @@ Notes:
 
 - [x] SIPs that record their own instalments at each date's real NAV (backfilled, idempotent); goals with progress, linked holdings and the monthly investment needed
 - [x] Business logic in a framework-free `packages/core`, shared by the NestJS API and the Workers app
-- [x] Production on Cloudflare's free plan: one Worker serving the web build and the API, market data precomputed by cron into Postgres (section 4.9)
+- [x] Production on Cloudflare's free plan: Pages for the web build and the API, a cron Worker precomputing market data into Postgres (section 4.9)
 
 ### Next (in order)
 
