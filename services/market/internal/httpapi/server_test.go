@@ -73,6 +73,9 @@ func TestRoutes(t *testing.T) {
 		{"/v1/funds/122639/stats", http.StatusOK},
 		{"/v1/funds/122639/history?range=3mo", http.StatusOK},
 		{"/v1/funds/999999/stats", http.StatusNotFound},
+		{"/v1/funds/122639/navs?on=2025-01-06,2025-02-05", http.StatusOK},
+		{"/v1/funds/122639/navs?on=yesterday", http.StatusBadRequest},
+		{"/v1/funds/122639/navs", http.StatusBadRequest},
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {

@@ -170,3 +170,33 @@ func TestWarmersRefreshEverything(t *testing.T) {
 		t.Error("warm reports should include the funds job")
 	}
 }
+
+func TestFundNavsOnUsesTheNextPublishedNav(t *testing.T) {
+	svc := newMockService()
+	// Mock NAVs are published on weekdays only. 2025-01-04 is a Saturday.
+	navs, err := svc.FundNavsOn(t.Context(), "900010", []string{"2025-01-04", "2025-01-06", "2999-01-01"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(navs) != 2 {
+		t.Fatalf("got %d navs, want 2 (the future date is not published yet): %+v", len(navs), navs)
+	}
+	if navs[0].Requested != "2025-01-04" || navs[0].Date != "2025-01-06" {
+		t.Errorf("a Saturday SIP should take Monday's NAV, got %+v", navs[0])
+	}
+	if navs[1].Date != "2025-01-06" || navs[0].Nav != navs[1].Nav {
+		t.Errorf("the Monday request should match Monday's NAV, got %+v", navs[1])
+	}
+}
+
+func TestFundNavsOnValidatesDates(t *testing.T) {
+	svc := newMockService()
+
+	if _, err := svc.FundNavsOn(t.Context(), "900010", []string{"05-01-2025"}); !errors.Is(err, market.ErrInvalid) {
+		t.Errorf("err = %v, want ErrInvalid for a non-ISO date", err)
+	}
+	if _, err := svc.FundNavsOn(t.Context(), "900010", nil); !errors.Is(err, market.ErrInvalid) {
+		t.Errorf("err = %v, want ErrInvalid for no dates", err)
+	}
+}
