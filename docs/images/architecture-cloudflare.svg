@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1160" height="640" viewBox="0 0 1160 640" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title>Folio in production on Cloudflare's free plan</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#57606a"/>
+    </marker>
+  </defs>
+
+  <!-- Card background, so the diagram reads the same in light and dark themes -->
+  <rect x="0" y="0" width="1160" height="640" rx="16" fill="#ffffff"/>
+  <text x="32" y="44" font-size="22" font-weight="700" fill="#1f2328">Production: Cloudflare free plan</text>
+  <text x="32" y="70" font-size="15" fill="#57606a">Requests only read precomputed data; a cron Worker does the fetching and computing.</text>
+
+  <!-- Browser -->
+  <rect x="32" y="250" width="180" height="128" rx="12" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+  <text x="122" y="284" font-size="17" font-weight="700" fill="#1f2328" text-anchor="middle">Browser</text>
+  <text x="122" y="312" font-size="14" fill="#57606a" text-anchor="middle">Owner: signed</text>
+  <text x="122" y="331" font-size="14" fill="#57606a" text-anchor="middle">session cookie</text>
+  <text x="122" y="356" font-size="14" fill="#57606a" text-anchor="middle">Anyone else: demo</text>
+
+  <!-- Cloudflare container -->
+  <rect x="260" y="96" width="640" height="516" rx="16" fill="#fff8f2" stroke="#f38020" stroke-width="2" stroke-dasharray="8 6"/>
+  <text x="284" y="128" font-size="16" font-weight="700" fill="#c2410c">Cloudflare</text>
+
+  <!-- Pages project -->
+  <rect x="284" y="146" width="436" height="222" rx="12" fill="#ffffff" stroke="#f38020" stroke-width="1.5"/>
+  <text x="304" y="176" font-size="16" font-weight="700" fill="#1f2328">Pages project: folio-4u6.pages.dev</text>
+
+  <rect x="304" y="192" width="190" height="156" rx="10" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="399" y="222" font-size="15" font-weight="700" fill="#1f2328" text-anchor="middle">Static files</text>
+  <text x="399" y="250" font-size="14" fill="#57606a" text-anchor="middle">React web build</text>
+  <text x="399" y="272" font-size="14" fill="#57606a" text-anchor="middle">every path except</text>
+  <text x="399" y="292" font-size="14" fill="#57606a" text-anchor="middle">/api/*</text>
+  <text x="399" y="324" font-size="13" fill="#1a7f37" text-anchor="middle">no code runs, free</text>
+
+  <rect x="510" y="192" width="190" height="156" rx="10" fill="#ddf4ff" stroke="#54aeff"/>
+  <text x="605" y="222" font-size="15" font-weight="700" fill="#1f2328" text-anchor="middle">API function</text>
+  <text x="605" y="250" font-size="14" fill="#57606a" text-anchor="middle">/api/* on Hono</text>
+  <text x="605" y="272" font-size="14" fill="#57606a" text-anchor="middle">packages/core</text>
+  <text x="605" y="292" font-size="14" fill="#57606a" text-anchor="middle">services</text>
+  <text x="605" y="324" font-size="13" fill="#57606a" text-anchor="middle">Smart Placement</text>
+
+  <!-- Cron worker -->
+  <rect x="284" y="400" width="436" height="188" rx="12" fill="#ffffff" stroke="#f38020" stroke-width="1.5"/>
+  <text x="304" y="430" font-size="16" font-weight="700" fill="#1f2328">Worker: folio-cron (no public URL)</text>
+  <text x="304" y="460" font-size="14" fill="#57606a">One cron trigger, every minute.</text>
+  <text x="304" y="482" font-size="14" fill="#57606a">Runs the single most urgent job:</text>
+  <text x="304" y="512" font-size="14" fill="#1f2328">quotes · stock stats · fund catalogue</text>
+  <text x="304" y="534" font-size="14" fill="#1f2328">fund stats · SIP instalments · demo reset</text>
+  <text x="304" y="566" font-size="13" fill="#57606a">A few instruments per run, so each stays small</text>
+
+  <!-- Hyperdrive -->
+  <rect x="748" y="300" width="132" height="104" rx="12" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+  <text x="814" y="336" font-size="15" font-weight="700" fill="#1f2328" text-anchor="middle">Hyperdrive</text>
+  <text x="814" y="360" font-size="13" fill="#57606a" text-anchor="middle">pooled Postgres</text>
+  <text x="814" y="380" font-size="13" fill="#57606a" text-anchor="middle">cache off</text>
+
+  <!-- Neon -->
+  <rect x="948" y="270" width="180" height="164" rx="12" fill="#dafbe1" stroke="#4ac26b" stroke-width="1.5"/>
+  <text x="1038" y="304" font-size="17" font-weight="700" fill="#1f2328" text-anchor="middle">Neon Postgres</text>
+  <text x="1038" y="328" font-size="13" fill="#57606a" text-anchor="middle">Singapore, free tier</text>
+  <text x="1038" y="358" font-size="14" fill="#1f2328" text-anchor="middle">ledger, SIPs, goals</text>
+  <text x="1038" y="380" font-size="14" fill="#1f2328" text-anchor="middle">precomputed stats</text>
+  <text x="1038" y="402" font-size="14" fill="#1f2328" text-anchor="middle">and quotes</text>
+
+  <!-- Upstreams -->
+  <rect x="948" y="470" width="180" height="142" rx="12" fill="#fff8c5" stroke="#d4a72c" stroke-width="1.5"/>
+  <text x="1038" y="502" font-size="17" font-weight="700" fill="#1f2328" text-anchor="middle">Market data</text>
+  <text x="1038" y="530" font-size="14" fill="#1f2328" text-anchor="middle">Yahoo Finance</text>
+  <text x="1038" y="552" font-size="14" fill="#1f2328" text-anchor="middle">mfapi.in · AMFI</text>
+  <text x="1038" y="574" font-size="14" fill="#1f2328" text-anchor="middle">Frankfurter (FX)</text>
+
+  <!-- Arrows -->
+  <line x1="212" y1="290" x2="282" y2="270" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="216" y="252" font-size="13" fill="#57606a">HTTPS</text>
+
+  <path d="M700,270 L814,270 L814,298" fill="none" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M720,470 L814,470 L814,406" fill="none" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="880" y1="352" x2="946" y2="352" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <path d="M720,550 L946,550" fill="none" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="742" y="540" font-size="13" fill="#57606a">fetch and compute</text>
+</svg>
