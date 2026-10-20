@@ -212,3 +212,11 @@ export const FundScreenResultSchema = z.object({
   rows: z.array(FundStatsSchema),
 });
 export type FundScreenResult = z.infer<typeof FundScreenResultSchema>;
+
+/** The NAV that applied to a purchase on a requested date (the next business day's, for holidays). */
+export const NavOnSchema = z.object({
+  requested: z.iso.date(),
+  date: z.iso.date(),
+  nav: DecimalStringSchema,
+});
+export type NavOn = z.infer<typeof NavOnSchema>;

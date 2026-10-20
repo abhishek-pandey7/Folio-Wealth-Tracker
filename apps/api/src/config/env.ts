@@ -8,6 +8,8 @@ export const envSchema = z.object({
   MARKET_GATEWAY_TIMEOUT_MS: z.coerce.number().int().positive().default(8_000),
   /** Single-owner mode until auth lands: all data belongs to this user. */
   OWNER_EMAIL: z.email().default('owner@folio.local'),
+  /** Shared secret a scheduler presents to POST /api/internal/sips/run. Unset disables the endpoint. */
+  CRON_SECRET: z.string().min(24, 'Use a long random CRON_SECRET').optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
