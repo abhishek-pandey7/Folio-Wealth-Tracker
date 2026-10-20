@@ -1,0 +1,31 @@
+{
+  "name": "folio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Personal portfolio manager: track holdings across brokers and currencies, see real performance, keep your allocation on target.",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "postinstall": "npm run build -w @folio/shared",
+    "dev": "concurrently -k -n shared,api,web -c gray,blue,magenta \"npm run dev -w @folio/shared\" \"npm run dev -w @folio/api\" \"npm run dev -w @folio/web\"",
+    "build": "npm run build -w @folio/shared && npm run build -w @folio/api && npm run build -w @folio/web",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "db:up": "docker compose up -d --wait",
+    "db:down": "docker compose down",
+    "db:generate": "npm run db:generate -w @folio/api",
+    "db:migrate": "npm run db:migrate -w @folio/api"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.15",
+    "concurrently": "^10.0.6",
+    "typescript": "^7.0.2"
+  }
+}
