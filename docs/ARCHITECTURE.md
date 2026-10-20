@@ -272,12 +272,46 @@ The current design runs comfortably on one machine. If it had to serve many user
 5. **Read replicas** for Postgres if reporting queries start competing with writes.
 6. **A paid market data feed** replaces Yahoo behind the same `QuoteSource` interface; nothing else changes.
 
-### 4.7 Testing strategy
+### 4.7 Analytics and screening
+
+The gateway ranks stocks, ETFs and mutual funds so the app can answer "what has done best over this period?" and "what has done well *steadily*?".
+
+**Metrics** (`internal/analytics`, computed per symbol or scheme):
+
+| Metric | Definition | Why it is there |
+| --- | --- | --- |
+| Return 1d to 1y | % change from the close at or before the period start | Raw performance |
+| Return 3y, 5y | **Annualized** (CAGR) | Multi-year totals are not comparable; per-year rates are |
+| Volatility (1y) | Annualized std. dev. of daily log returns | How bumpy the ride is |
+| Max drawdown (1y) | Worst peak-to-trough fall | "The most you'd have been down" |
+| Return per unit of risk (1y) | 1y return / 1y volatility | Separates steady winners from lucky ones (a Sharpe ratio with zero risk-free rate) |
+| Up months | Months out of the last 12 that closed higher | Consistency an investor can feel |
+| From 52-week high | Distance below the 52-week high | Context for "is it cheap or just falling?" |
+
+Rules that keep comparisons honest:
+
+- Returns use **split- and dividend-adjusted** closes. Unadjusted prices show a 1:2 split as a 50% crash. A series never mixes adjusted and unadjusted closes (a test pins this).
+- 1-year statistics require a **full year** of history, so a fund launched four months ago cannot be ranked "steadiest" against funds measured over twelve.
+- A period's base point may fall up to 7 days after the period start (holidays, provider range edges); CAGR uses the actual base date, so it stays exact.
+- Statistics are `float64`: they are ratios and estimates, not money. Prices and NAVs remain decimal strings.
+- **No price predictions.** Historical statistics are descriptive; forecasting stock prices gives false precision and, for a regulated broker, a compliance problem.
+
+**Universes** (`internal/universe`): curated India large and mid caps, ~13 sector lists, US large caps, India and US ETFs, and indices. Lists are hand-maintained (official index memberships are not available free) and every symbol was verified against live data; names come from the provider, so only symbols and sectors are maintained. Members that later fail (renames, demergers such as Tata Motors) appear in a screen's `unavailable` map instead of breaking it. `LIQUIDBEES` is deliberately excluded: it pays returns as units while its price stays flat.
+
+**Fund categories** come from AMFI's official daily NAV file, which groups every scheme under its SEBI category (AMFI uses two spellings for each category, so matching is by pattern). The screener keeps only **Direct, Growth** plans with a NAV in the last week, then computes metrics from each scheme's full NAV history (mfapi.in).
+
+**Screening** fans out per member with bounded concurrency (8 for stocks, 4 for funds, to be gentle with a community API), ranks by the requested metric in its natural "best" direction (volatility ascending, everything else descending), and supports `order=worst` for losers. Today's move comes from the live quote cache, not the hourly statistics.
+
+**Background warming.** A cold category screen would take 10 to 50 s of rate-limited upstream calls. Two warm jobs refresh every curated symbol (every 45 min, inside the 1 h stats TTL) and every fund category (every 6 h, inside the 12 h TTL) using `Cache.Refresh`, which renews entries *before* they expire. Measured locally: 141 symbols in ~27 s and 379 fund schemes in ~50 s, so user-facing screens are served from memory. Only computed metrics are cached long-term (hundreds of bytes each), not the ~100 KB raw series.
+
+### 4.8 Testing strategy
 
 | Layer | What is tested | How |
 | --- | --- | --- |
 | Domain math (`packages/shared`) | Drift calculation, decimal exactness, contracts against a real captured gateway response | Vitest unit tests |
-| Gateway cache | TTL, coalescing, stale-if-error, eviction, cancellation isolation | Go tests in `synctest` bubbles (virtual time) |
+| Gateway cache | TTL, coalescing, stale-if-error, eviction, cancellation isolation, refresh | Go tests in `synctest` bubbles (virtual time) |
+| Analytics | CAGR, short-history rules, YTD base, volatility, drawdown, up months, risk-adjusted | Synthetic series with known answers |
+| Screener | Best/worst ordering, volatility direction, live 1d overlay, validation, fund categories, warmers | Against the deterministic mock provider |
 | Gateway providers | Parsing, null handling, float noise, 404 and 429 mapping, unsupported currency | `httptest` servers replaying trimmed real responses, never the network |
 | Gateway HTTP | Every route's status codes, error shape, request-ID echo, panic recovery | `httptest` against the mock provider |
 | API | Gateway client error mapping and contract enforcement; health via the real Nest DI container | Vitest with stubbed `fetch` |
@@ -361,6 +395,7 @@ Notes:
 - [x] Ledger-first schema and migrations
 - [x] Allocation drift calculation (decimal-exact, tested)
 - [x] Web dashboard: watchlist, price chart, mutual fund lookup, health and FX status, light and dark themes
+- [x] Analytics and screener: returns (3y/5y annualized), volatility, drawdown, risk-adjusted return, up months; curated stock, sector and ETF universes; AMFI fund categories; background cache warming
 - [x] Starred watchlist in Postgres: idempotent `PUT`/`DELETE`, symbols verified and currency taken from the gateway (never the client), optimistic UI with rollback, single-owner mode until auth
 
 ### Next (in order)
