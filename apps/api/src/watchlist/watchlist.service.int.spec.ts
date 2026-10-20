@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Quote } from '@folio/shared';
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { eq, inArray } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
@@ -33,6 +33,21 @@ describe.skipIf(!databaseUrl)('WatchlistService (Postgres)', () => {
   let service: WatchlistService;
   const gatewayGet = vi.fn(async (path: string) => {
     const symbol = decodeURIComponent(path.split('/').at(-1) ?? '');
+    if (path.startsWith('/v1/funds/')) {
+      if (symbol === '99999999') {
+        throw new NotFoundException('not found');
+      }
+      return {
+        schemeCode: symbol,
+        name: `Test Fund ${symbol} - Direct Plan - Growth`,
+        fundHouse: 'Test MF',
+        category: 'Equity Scheme - Flexi Cap Fund',
+        nav: '10',
+        navDate: '2026-10-19',
+        source: 'test',
+        stale: false,
+      };
+    }
     if (symbol === 'NOPE.NS') {
       throw new NotFoundException('not found');
     }
@@ -42,6 +57,7 @@ describe.skipIf(!databaseUrl)('WatchlistService (Postgres)', () => {
   const run = randomUUID().slice(0, 8);
   const sym = (base: string) => `T${run}${base}`.toUpperCase().slice(0, 18);
   const userIds: string[] = [];
+  const fundCode = String(90000000 + Math.floor(Math.random() * 9999999)).slice(0, 8);
 
   async function createUser(): Promise<string> {
     const [user] = await db
@@ -60,15 +76,13 @@ describe.skipIf(!databaseUrl)('WatchlistService (Postgres)', () => {
   });
 
   afterAll(async () => {
+    // Users first: deleting them cascades to their stars, which reference the instruments.
     if (userIds.length) {
       await db.delete(schema.users).where(inArray(schema.users.id, userIds));
     }
-    await db.delete(schema.instruments).where(
-      inArray(
-        schema.instruments.symbol,
-        ['A', 'B', 'C'].map((s) => sym(s)),
-      ),
-    );
+    await db
+      .delete(schema.instruments)
+      .where(inArray(schema.instruments.symbol, [...['A', 'B', 'C'].map((s) => sym(s)), `MF-${fundCode}`]));
     await pool.end();
   });
 
@@ -126,5 +140,32 @@ describe.skipIf(!databaseUrl)('WatchlistService (Postgres)', () => {
     await expect(service.star(userId, 'NOPE.NS', {})).rejects.toBeInstanceOf(NotFoundException);
     const rows = await db.select().from(schema.instruments).where(eq(schema.instruments.symbol, 'NOPE.NS'));
     expect(rows).toEqual([]);
+  });
+
+  it('stars mutual funds by scheme code alongside stocks', async () => {
+    const userId = await createUser();
+    await service.star(userId, sym('A'), {});
+
+    const fund = await service.starFund(userId, fundCode);
+
+    expect(fund).toMatchObject({
+      symbol: `MF-${fundCode}`,
+      schemeCode: fundCode,
+      assetClass: 'mutual_fund',
+      currency: 'INR',
+    });
+    expect(fund.name).toContain('Test Fund');
+    const items = await service.list(userId);
+    expect(items.map((i) => i.schemeCode)).toEqual([null, fundCode]);
+
+    await service.unstarFund(userId, fundCode);
+    expect(await service.list(userId)).toHaveLength(1);
+  });
+
+  it('rejects malformed and unknown scheme codes', async () => {
+    const userId = await createUser();
+
+    await expect(service.starFund(userId, 'abc')).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.starFund(userId, '99999999')).rejects.toBeInstanceOf(NotFoundException);
   });
 });
