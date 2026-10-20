@@ -31,6 +31,8 @@ type Stats struct {
 	Misses      uint64 `json:"misses"`
 	StaleServed uint64 `json:"staleServed"`
 	LoadErrors  uint64 `json:"loadErrors"`
+	// Revalidated counts expired entries served at once while refreshing in the background.
+	Revalidated uint64 `json:"revalidated"`
 }
 
 type entry[V any] struct {
@@ -45,7 +47,7 @@ type Cache[V any] struct {
 	entries map[string]entry[V]
 	group   singleflight.Group
 
-	hits, misses, staleServed, loadErrors atomic.Uint64
+	hits, misses, staleServed, loadErrors, revalidated atomic.Uint64
 }
 
 func New[V any](opts Options) *Cache[V] {
@@ -91,6 +93,31 @@ func (c *Cache[V]) Get(ctx context.Context, key string, load func(context.Contex
 	}
 }
 
+// GetFast never waits on upstream for a value it already has: an expired entry
+// still inside its stale window is returned at once while a refresh runs in
+// the background (stale-while-revalidate). Only a true miss loads in line.
+// For callers that need speed over the last few seconds of freshness, like a
+// ranking overlaying live prices on dozens of symbols at once.
+func (c *Cache[V]) GetFast(ctx context.Context, key string, load func(context.Context) (V, error)) (V, error) {
+	cached, found := c.lookup(key)
+	if found {
+		age := time.Since(cached.fetchedAt)
+		if age < c.opts.TTL {
+			c.hits.Add(1)
+			return cached.value, nil
+		}
+		if age < c.opts.TTL+c.opts.StaleFor {
+			c.revalidated.Add(1)
+			// Refresh shares the in-flight load (singleflight), so a burst of
+			// readers starts one upstream call per key, not one each.
+			go func() { _, _ = c.Refresh(context.WithoutCancel(ctx), key, load) }()
+			return cached.value, nil
+		}
+	}
+	value, _, err := c.Get(ctx, key, load)
+	return value, err
+}
+
 // Refresh reloads key unconditionally and stores the result, so a background
 // job can renew entries before they expire instead of letting users hit
 // misses. On failure the existing entry is kept, and stale-if-error still
@@ -122,6 +149,7 @@ func (c *Cache[V]) Stats() Stats {
 		Misses:      c.misses.Load(),
 		StaleServed: c.staleServed.Load(),
 		LoadErrors:  c.loadErrors.Load(),
+		Revalidated: c.revalidated.Load(),
 	}
 }
 

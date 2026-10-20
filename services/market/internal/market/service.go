@@ -110,6 +110,16 @@ func (s *Service) Quote(ctx context.Context, rawSymbol string) (Quote, error) {
 	return q, err
 }
 
+// quoteFast never waits on a refresh: a just-expired quote is served at once
+// while a fresh one loads in the background. Batch and ranking callers use it,
+// because refreshing dozens of quotes through a rate-limited upstream would
+// otherwise stall every request whenever their TTLs lapse together.
+func (s *Service) quoteFast(ctx context.Context, symbol string) (Quote, error) {
+	return s.quoteCache.GetFast(ctx, symbol, func(ctx context.Context) (Quote, error) {
+		return s.quotes.Quote(ctx, symbol)
+	})
+}
+
 type BatchQuotes struct {
 	Quotes []Quote `json:"quotes"`
 	// Errors maps each symbol that could not be priced to the reason, so one
@@ -148,7 +158,7 @@ func (s *Service) Quotes(ctx context.Context, rawSymbols []string) (BatchQuotes,
 	g.SetLimit(s.cfg.BatchConcurrency)
 	for i, symbol := range symbols {
 		g.Go(func() error {
-			q, err := s.Quote(ctx, symbol)
+			q, err := s.quoteFast(ctx, symbol)
 			if err != nil {
 				mu.Lock()
 				result.Errors[symbol] = err.Error()

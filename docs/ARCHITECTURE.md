@@ -113,7 +113,7 @@ The honest reason is **not** raw speed. Nothing at this scale is CPU-bound. The 
 
 1. **The workload is concurrent I/O.** Valuing a portfolio means fanning out to dozens of symbols with per-upstream rate limits and timeouts. Goroutines, `errgroup` with a concurrency limit, `singleflight` and `x/time/rate` express this directly and are battle-tested.
 2. **It is a natural service boundary.** Market data has a different change rate, failure profile and scaling need from portfolio data. Isolating it means a misbehaving upstream (slow responses, malformed JSON) can never exhaust the API's event loop or database pool.
-3. **Operational footprint.** A static 17 MB distroless image, about 23 MB of memory with warm caches (measured locally), near-instant startup.
+3. **Operational footprint.** A static 17.7 MB distroless image; about 111 MB of memory with every analytics cache warm (141 symbols, 380 funds), measured locally; near-instant startup. See [KPIS.md](KPIS.md).
 
 | Alternative | Why not (here) |
 | --- | --- |
@@ -209,11 +209,12 @@ All caching happens in the gateway, in a generic read-through cache (`internal/c
 | Mutual fund NAV | 1 h | 72 h | Published once a day after market close |
 | FX rate | 1 h | 72 h | ECB publishes once a day |
 
-Three behaviours make this more than a map with timestamps:
+Four behaviours make this more than a map with timestamps:
 
 1. **Request coalescing (singleflight).** Ten concurrent requests for an uncached `TCS.NS` produce one upstream call; the other nine wait for it. This matters most on cold start and right after TTL expiry, when every client misses at once (the thundering-herd problem).
 2. **Stale-if-error.** If the upstream call fails and an expired entry is still inside its stale window, that entry is returned with `"stale": true` instead of an error. The UI labels it "delayed". Users see a slightly old price instead of a broken page.
-3. **Detached loads.** The upstream call runs on a context detached from the first caller's, so one user closing their tab cannot cancel a fetch that other users are waiting on. Upstream clients carry their own timeouts, so nothing leaks.
+3. **Stale-while-revalidate for bulk reads.** Rankings overlay live prices on dozens of symbols at once. When those prices expire together, refreshing them through a 5 req/s upstream limit took about 12 s and stalled every request (found by load testing: 7 req/s, p90 9.9 s). Bulk callers now use `Cache.GetFast`, which serves an expired entry at once and refreshes it in one shared background load; the warm job also pre-loads prices. Result: 713 req/s, p99 224 ms. Single-quote lookups still wait for a fresh price.
+4. **Detached loads.** The upstream call runs on a context detached from the first caller's, so one user closing their tab cannot cancel a fetch that other users are waiting on. Upstream clients carry their own timeouts, so nothing leaks.
 
 Memory is bounded (`MaxEntries` per cache, oldest-first eviction), so a client sending random symbols cannot grow the cache without limit.
 
