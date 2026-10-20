@@ -19,7 +19,16 @@ const quantity = (name: string) => numeric(name, { precision: 20, scale: 6 });
 
 export const currency = pgEnum('currency', ['INR', 'USD']);
 
-export const assetClass = pgEnum('asset_class', ['equity', 'etf', 'mutual_fund', 'bond', 'gold', 'crypto', 'cash']);
+export const assetClass = pgEnum('asset_class', [
+  'equity',
+  'etf',
+  'mutual_fund',
+  'bond',
+  'gold',
+  'crypto',
+  'cash',
+  'index',
+]);
 
 export const transactionType = pgEnum('transaction_type', [
   'buy',
