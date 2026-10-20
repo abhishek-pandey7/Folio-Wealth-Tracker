@@ -6,6 +6,8 @@ Folio values NSE, BSE and US stocks, ETFs and Indian mutual funds live, converts
 
 **How it's built and why:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) covers every major decision, the alternatives that were rejected, caching and failure handling, the scaling path, and the roadmap.
 
+**Measured performance and quality:** [`docs/KPIS.md`](docs/KPIS.md). Rankings serve 713 req/s at p99 224 ms; 99.99% of cache lookups are answered from memory; 89% Go test coverage; 95 TypeScript tests including 26 against real Postgres.
+
 ```mermaid
 flowchart LR
     Web["React web app"] --> API["NestJS API"]
@@ -69,6 +71,7 @@ Set `MARKET_DATA_MODE=mock` to run fully offline with deterministic fake data.
 | `npm run lint` | Biome lint and format check |
 | `npm run db:generate` | Create a migration from schema changes |
 | `npm run stack:up` | Postgres and the gateway in Docker |
+| `npm run bench` | Load test the running stack (see docs/KPIS.md) |
 
 ## Layout
 
