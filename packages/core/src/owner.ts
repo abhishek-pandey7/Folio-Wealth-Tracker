@@ -1,25 +1,18 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import type { Env } from '../config/env.js';
-import { type Database, DRIZZLE } from '../database/database.module.js';
-import { users } from '../database/schema.js';
+import type { Database } from './database.js';
+import { users } from './schema.js';
 
 /**
  * Single-owner mode until authentication lands: every request acts as the
- * owner configured by OWNER_EMAIL. All data access is already scoped by user
- * id, so adding OIDC later only changes how that id is resolved here.
+ * owner with this email. All data access is already scoped by user id, so
+ * adding real sign-in later only changes how that id is resolved here.
  */
-@Injectable()
 export class CurrentUserService {
-  private readonly email: string;
   private ownerId: Promise<string> | undefined;
 
   constructor(
-    @Inject(DRIZZLE) private readonly db: Database,
-    config: ConfigService<Env, true>,
-  ) {
-    this.email = config.get('OWNER_EMAIL', { infer: true });
-  }
+    private readonly db: Database,
+    private readonly email: string,
+  ) {}
 
   id(): Promise<string> {
     this.ownerId ??= this.ensureOwner().catch((error: unknown) => {

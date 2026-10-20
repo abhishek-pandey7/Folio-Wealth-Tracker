@@ -42,7 +42,7 @@ flowchart LR
 Requires Node 22+, Go 1.27+ and Docker.
 
 ```bash
-npm install                # also builds packages/shared
+npm install                # also builds packages/shared and packages/core
 cp .env.example .env
 npm run db:up              # Postgres in Docker on localhost:5442
 npm run db:migrate
@@ -79,6 +79,7 @@ Set `MARKET_DATA_MODE=mock` to run fully offline with deterministic fake data.
 apps/web           React dashboard
 apps/api           NestJS API (owns Postgres, proxies market data)
 services/market    Go market data gateway
+packages/core      Business logic, free of NestJS so Workers can run it too
 packages/shared    API contracts and decimal-safe domain math
 docs/              Architecture and design decisions
 ```

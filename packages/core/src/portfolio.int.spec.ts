@@ -1,21 +1,16 @@
 import { randomUUID } from 'node:crypto';
-import {
-  BadRequestException,
-  ConflictException,
-  NotFoundException,
-  UnprocessableEntityException,
-} from '@nestjs/common';
 import { inArray } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { Database } from '../database/database.module.js';
-import * as schema from '../database/schema.js';
-import { InstrumentsService } from '../instruments/instruments.service.js';
-import type { MarketGatewayClient } from '../market/market-gateway.client.js';
-import { AccountsService } from './accounts.service.js';
-import { TransactionsService } from './transactions.service.js';
-import { ValuationService } from './valuation.service.js';
+import { AccountsService } from './accounts.js';
+import type { Database } from './database.js';
+import { BadRequestError, ConflictError, NotFoundError, UnprocessableError } from './errors.js';
+import { InstrumentsService } from './instruments.js';
+import * as schema from './schema.js';
+import { marketFromRoutes } from './testing/market-from-routes.js';
+import { TransactionsService } from './transactions.js';
+import { ValuationService } from './valuation.js';
 
 // Integration test: runs against a real, migrated Postgres when DATABASE_URL is set (CI provides one).
 const databaseUrl = process.env.DATABASE_URL;
@@ -99,7 +94,7 @@ describe.skipIf(!databaseUrl)('portfolio (Postgres)', () => {
   beforeAll(() => {
     pool = new Pool({ connectionString: databaseUrl });
     db = drizzle({ client: pool, schema });
-    const gateway = { get: fakeGateway } as unknown as MarketGatewayClient;
+    const gateway = marketFromRoutes(fakeGateway);
     accounts = new AccountsService(db);
     txns = new TransactionsService(db, accounts, new InstrumentsService(db, gateway));
     valuation = new ValuationService(db, gateway);
@@ -121,9 +116,7 @@ describe.skipIf(!databaseUrl)('portfolio (Postgres)', () => {
     const userId = await createUser();
     await accounts.create(userId, { name: 'Zerodha', currency: 'INR' });
 
-    await expect(accounts.create(userId, { name: 'Zerodha', currency: 'INR' })).rejects.toBeInstanceOf(
-      ConflictException,
-    );
+    await expect(accounts.create(userId, { name: 'Zerodha', currency: 'INR' })).rejects.toBeInstanceOf(ConflictError);
     expect(await accounts.list(userId)).toHaveLength(1);
   });
 
@@ -152,10 +145,10 @@ describe.skipIf(!databaseUrl)('portfolio (Postgres)', () => {
     await txns.create(userId, { ...base, type: 'sell', tradeDate: '2025-03-01', quantity: '4', price: '110' });
     await expect(
       txns.create(userId, { ...base, type: 'sell', tradeDate: '2025-04-01', quantity: '7', price: '110' }),
-    ).rejects.toBeInstanceOf(UnprocessableEntityException);
+    ).rejects.toBeInstanceOf(UnprocessableError);
     await expect(
       txns.create(userId, { ...base, type: 'buy', tradeDate: '2999-01-01', quantity: '1', price: '1' }),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    ).rejects.toBeInstanceOf(BadRequestError);
 
     expect(await txns.list(userId, acct.id)).toHaveLength(2);
   });
@@ -179,7 +172,7 @@ describe.skipIf(!databaseUrl)('portfolio (Postgres)', () => {
       price: '120',
     });
 
-    await expect(txns.remove(userId, buy.id)).rejects.toBeInstanceOf(UnprocessableEntityException);
+    await expect(txns.remove(userId, buy.id)).rejects.toBeInstanceOf(UnprocessableError);
 
     await txns.remove(userId, sale.id);
     await txns.remove(userId, buy.id);
@@ -311,7 +304,7 @@ describe.skipIf(!databaseUrl)('portfolio (Postgres)', () => {
 
     expect(await accounts.list(bob)).toEqual([]);
     expect(await txns.list(bob)).toEqual([]);
-    await expect(txns.remove(bob, t.id)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(txns.remove(bob, t.id)).rejects.toBeInstanceOf(NotFoundError);
     await expect(
       txns.create(bob, {
         accountId: acct.id,
@@ -321,8 +314,8 @@ describe.skipIf(!databaseUrl)('portfolio (Postgres)', () => {
         quantity: '1',
         price: '1',
       }),
-    ).rejects.toBeInstanceOf(NotFoundException);
-    await expect(accounts.remove(bob, acct.id)).rejects.toBeInstanceOf(NotFoundException);
+    ).rejects.toBeInstanceOf(NotFoundError);
+    await expect(accounts.remove(bob, acct.id)).rejects.toBeInstanceOf(NotFoundError);
   });
 
   it('names the instrument, not an internal id, when rejecting a sale', async () => {

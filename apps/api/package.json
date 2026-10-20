@@ -15,6 +15,7 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
+    "@folio/core": "^0.1.0",
     "@folio/shared": "^0.1.0",
     "@nestjs/common": "^12.2.0",
     "@nestjs/config": "^12.0.1",

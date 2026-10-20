@@ -50,8 +50,9 @@ flowchart LR
 | Component | Responsibility | Owns |
 | --- | --- | --- |
 | `apps/web` | UI. Never talks to anything except the API. | Nothing persistent |
-| `apps/api` | Public API, domain logic (portfolios, ledger), validation of every gateway response | PostgreSQL |
+| `apps/api` | Public API: routing, request validation, validation of every gateway response. A thin NestJS layer over `packages/core`. | PostgreSQL |
 | `services/market` | The only component that talks to third-party market data. Caching, rate limiting, failover to stale data. | In-memory caches |
+| `packages/core` | Framework-free business logic: accounts, transactions, valuation, SIPs, goals, watchlist. Takes a Drizzle database and a `MarketData` port and throws plain `AppError`s, so the same code runs under NestJS and on Cloudflare Workers. | Nothing (uses the API's database) |
 | `packages/shared` | API contracts (zod) and domain math (`Decimal`) used by both the API and the web app | Nothing at runtime |
 
 ### A request, end to end

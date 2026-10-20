@@ -7,23 +7,17 @@ import {
   type SetGoalHoldings,
   type UpdateGoal,
 } from '@folio/shared';
-import { ConflictException, Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import { and, asc, eq, inArray, ne } from 'drizzle-orm';
-import { type Database, DRIZZLE } from '../database/database.module.js';
-import { goalHoldings, goals, instruments, portfolios, sips, transactions } from '../database/schema.js';
-import { ValuationService } from '../portfolio/valuation.service.js';
+import type { Database } from './database.js';
+import { ConflictError, isUniqueViolation, NotFoundError, UnprocessableError } from './errors.js';
+import { goalHoldings, goals, instruments, portfolios, sips, transactions } from './schema.js';
+import type { ValuationService } from './valuation.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-function isUniqueViolation(error: unknown): boolean {
-  const e = error as { code?: string; cause?: { code?: string } };
-  return e.code === '23505' || e.cause?.code === '23505';
-}
-
-@Injectable()
 export class GoalsService {
   constructor(
-    @Inject(DRIZZLE) private readonly db: Database,
+    private readonly db: Database,
     private readonly valuation: ValuationService,
   ) {}
 
@@ -113,7 +107,7 @@ export class GoalsService {
 
   async create(userId: string, input: CreateGoal): Promise<Goal> {
     if (input.targetDate && input.targetDate <= today()) {
-      throw new UnprocessableEntityException('The target date should be in the future');
+      throw new UnprocessableError('The target date should be in the future');
     }
     try {
       const [row] = await this.db
@@ -129,7 +123,7 @@ export class GoalsService {
       if (!row) throw new Error('Goal insert returned nothing');
       return this.get(userId, row.id);
     } catch (error) {
-      if (isUniqueViolation(error)) throw new ConflictException(`You already have a goal called "${input.name}"`);
+      if (isUniqueViolation(error)) throw new ConflictError(`You already have a goal called "${input.name}"`);
       throw error;
     }
   }
@@ -147,7 +141,7 @@ export class GoalsService {
         })
         .where(eq(goals.id, id));
     } catch (error) {
-      if (isUniqueViolation(error)) throw new ConflictException(`You already have a goal called "${input.name}"`);
+      if (isUniqueViolation(error)) throw new ConflictError(`You already have a goal called "${input.name}"`);
       throw error;
     }
     return this.get(userId, id);
@@ -178,7 +172,7 @@ export class GoalsService {
     const idOf = new Map(known.map((k) => [k.symbol, k.id]));
     const missing = keys.filter((k) => !idOf.has(k));
     if (missing.length) {
-      throw new UnprocessableEntityException(`You have no transactions in ${missing.join(', ')}`);
+      throw new UnprocessableError(`You have no transactions in ${missing.join(', ')}`);
     }
 
     const elsewhere = keys.length
@@ -194,7 +188,7 @@ export class GoalsService {
       const used = others.reduce((sum, e) => sum + Number(e.share), 0);
       if (used + h.share > 1.0001) {
         const where = others.map((o) => `${Math.round(Number(o.share) * 100)}% to ${o.goal}`).join(', ');
-        throw new UnprocessableEntityException(
+        throw new UnprocessableError(
           `${h.instrumentKey} is already assigned ${where}; at most ${Math.round((1 - used) * 100)}% is left`,
         );
       }
@@ -217,7 +211,7 @@ export class GoalsService {
 
   private async get(userId: string, id: string): Promise<Goal> {
     const goal = (await this.list(userId)).find((g) => g.id === id);
-    if (!goal) throw new NotFoundException('Goal not found');
+    if (!goal) throw new NotFoundError('Goal not found');
     return goal;
   }
 
@@ -226,6 +220,6 @@ export class GoalsService {
       .select({ id: goals.id })
       .from(goals)
       .where(and(eq(goals.id, id), eq(goals.userId, userId)));
-    if (!row) throw new NotFoundException('Goal not found');
+    if (!row) throw new NotFoundError('Goal not found');
   }
 }

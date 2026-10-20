@@ -1,8 +1,8 @@
 import type { Account, CreateAccount, UpdateAccount } from '@folio/shared';
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, eq } from 'drizzle-orm';
-import { type Database, DRIZZLE } from '../database/database.module.js';
-import { portfolios } from '../database/schema.js';
+import type { Database } from './database.js';
+import { ConflictError, isUniqueViolation, NotFoundError } from './errors.js';
+import { portfolios } from './schema.js';
 
 type AccountRow = typeof portfolios.$inferSelect;
 
@@ -16,16 +16,9 @@ export function toAccount(row: AccountRow): Account {
   };
 }
 
-/** Postgres reports unique violations as SQLSTATE 23505; Drizzle may wrap the driver error. */
-function isUniqueViolation(error: unknown): boolean {
-  const e = error as { code?: string; cause?: { code?: string } };
-  return e.code === '23505' || e.cause?.code === '23505';
-}
-
 /** A brokerage account (Zerodha, Groww, a US broker). Stored in the portfolios table. */
-@Injectable()
 export class AccountsService {
-  constructor(@Inject(DRIZZLE) private readonly db: Database) {}
+  constructor(private readonly db: Database) {}
 
   async list(userId: string): Promise<Account[]> {
     const rows = await this.db
@@ -42,7 +35,7 @@ export class AccountsService {
       .from(portfolios)
       .where(and(eq(portfolios.id, id), eq(portfolios.userId, userId)));
     if (!row) {
-      throw new NotFoundException('Account not found');
+      throw new NotFoundError('Account not found');
     }
     return row;
   }
@@ -59,7 +52,7 @@ export class AccountsService {
       return toAccount(row);
     } catch (error) {
       if (isUniqueViolation(error)) {
-        throw new ConflictException(`You already have an account called "${input.name}"`);
+        throw new ConflictError(`You already have an account called "${input.name}"`);
       }
       throw error;
     }
@@ -77,12 +70,12 @@ export class AccountsService {
         .where(and(eq(portfolios.id, id), eq(portfolios.userId, userId)))
         .returning();
       if (!row) {
-        throw new NotFoundException('Account not found');
+        throw new NotFoundError('Account not found');
       }
       return toAccount(row);
     } catch (error) {
       if (isUniqueViolation(error)) {
-        throw new ConflictException(`You already have an account called "${input.name}"`);
+        throw new ConflictError(`You already have an account called "${input.name}"`);
       }
       throw error;
     }
@@ -95,7 +88,7 @@ export class AccountsService {
       .where(and(eq(portfolios.id, id), eq(portfolios.userId, userId)))
       .returning({ id: portfolios.id });
     if (deleted.length === 0) {
-      throw new NotFoundException('Account not found');
+      throw new NotFoundError('Account not found');
     }
   }
 }

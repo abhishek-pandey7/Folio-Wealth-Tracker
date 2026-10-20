@@ -1,14 +1,12 @@
+import { type Database, schema } from '@folio/core';
 import { Global, Inject, Logger, Module, type OnApplicationShutdown } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import type { Env } from '../config/env.js';
-import * as schema from './schema.js';
 
 export const PG_POOL = Symbol('PG_POOL');
 export const DRIZZLE = Symbol('DRIZZLE');
-
-export type Database = NodePgDatabase<typeof schema>;
 
 @Global()
 @Module({

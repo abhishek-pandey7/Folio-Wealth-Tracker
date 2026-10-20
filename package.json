@@ -11,8 +11,8 @@
     "node": ">=22"
   },
   "scripts": {
-    "postinstall": "npm run build -w @folio/shared",
-    "dev": "concurrently -k -n shared,api,market,web -c gray,blue,green,magenta \"npm run dev -w @folio/shared\" \"npm run dev -w @folio/api\" \"npm run dev:market\" \"npm run dev -w @folio/web\"",
+    "postinstall": "npm run build -w @folio/shared && npm run build -w @folio/core",
+    "dev": "concurrently -k -n shared,core,api,market,web -c gray,yellow,blue,green,magenta \"npm run dev -w @folio/shared\" \"npm run dev -w @folio/core\" \"npm run dev -w @folio/api\" \"npm run dev:market\" \"npm run dev -w @folio/web\"",
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",

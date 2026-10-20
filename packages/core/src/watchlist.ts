@@ -1,21 +1,19 @@
 import type { StarRequest, WatchlistItem } from '@folio/shared';
-import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq, inArray } from 'drizzle-orm';
-import { type Database, DRIZZLE } from '../database/database.module.js';
-import { instruments, watchlistItems } from '../database/schema.js';
+import type { Database } from './database.js';
 import {
   FUND_PREFIX,
   type Instrument,
-  InstrumentsService,
+  type InstrumentsService,
   parseSchemeCode,
   parseSymbol,
   schemeCodeOf,
-} from '../instruments/instruments.service.js';
+} from './instruments.js';
+import { instruments, watchlistItems } from './schema.js';
 
-@Injectable()
 export class WatchlistService {
   constructor(
-    @Inject(DRIZZLE) private readonly db: Database,
+    private readonly db: Database,
     private readonly instruments: InstrumentsService,
   ) {}
 
