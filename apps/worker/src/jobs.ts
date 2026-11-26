@@ -4,20 +4,26 @@
 // work from data age, so a failed run is simply retried by a later one.
 
 import { type Database, InstrumentsService, type Logger, SipsService, schema } from '@folio/core';
-import { and, asc, eq, gte, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNotNull, isNull, lt, or, type SQL, sql } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
 import { DEMO_SYMBOLS, demoSeeded, resetDemo } from './demo.js';
 import { HOUR, MINUTE } from './market/cache.js';
 import { CATALOG_JOB, EdgeMarket } from './market/edge.js';
 import { type CatalogState, catalogStep, FUNDS_BATCH, refreshFunds } from './market/funds.js';
 import { refreshQuotes, refreshStats, STATS_BATCH, track } from './market/stocks.js';
-import { allSymbols } from './market/universe.js';
+import { allSymbols, curatedSymbols } from './market/universe.js';
 
-const { symbolData, fundData, jobState } = schema;
+const { symbolData, fundData, jobState, instruments } = schema;
 
 /** A refresh that failed for the symbol itself (delisted, unknown) waits this long before a retry. */
 const ERROR_BACKOFF_MS = 6 * HOUR;
 const STATS_MAX_AGE_MS = 3 * HOUR;
+/**
+ * Nifty 500 and S&P 500 members that are not curated, held or starred: their
+ * one-year-and-longer statistics barely move in a day, and refreshing about a
+ * thousand of them every 3 hours would not fit one small job a minute.
+ */
+const INDEX_STATS_MAX_AGE_MS = 24 * HOUR;
 const FUND_MAX_AGE_MS = 12 * HOUR;
 /** SIP instalments are recorded once NAVs are out: AMFI publishes by about 23:00 IST (17:30 UTC). */
 const SIP_HOUR_UTC = 19;
@@ -39,10 +45,58 @@ interface Job {
   run(now: Date): Promise<Record<string, unknown> | null>;
 }
 
+const olderThan = (col: PgColumn, ms: number, now: Date) => or(isNull(col), lt(col, new Date(now.getTime() - ms)));
+const notFailing = (col: PgColumn, now: Date) => or(isNull(col), lt(col, new Date(now.getTime() - ERROR_BACKOFF_MS)));
+
+/**
+ * Symbols refreshed often: the curated lists, and anything someone holds, has
+ * synced from a broker or starred (every one of those has a row in
+ * instruments). Everything else is on the slower index schedule.
+ */
+export const prioritySymbols = (): SQL =>
+  or(
+    inArray(symbolData.symbol, curatedSymbols()),
+    sql`exists (select 1 from ${instruments} where ${instruments.symbol} = ${symbolData.symbol})`,
+  ) as SQL;
+
+/** Symbols in `tier` (all when undefined) whose quote is older than maxAgeMs, oldest first. */
+export async function dueForQuotes(db: Database, tier: SQL | undefined, maxAgeMs: number, now: Date, limit = 100) {
+  const rows = await db
+    .select({ symbol: symbolData.symbol })
+    .from(symbolData)
+    .where(and(tier, isNotNull(symbolData.currency), olderThan(symbolData.quoteAt, maxAgeMs, now)))
+    .orderBy(sql`${symbolData.quoteAt} asc nulls first`)
+    .limit(limit);
+  return rows.map((r) => r.symbol);
+}
+
+/** Symbols in `tier` (all when undefined) whose statistics are older than maxAgeMs and not failing, oldest first. */
+export async function dueForStats(
+  db: Database,
+  tier: SQL | undefined,
+  maxAgeMs: number,
+  now: Date,
+  limit = STATS_BATCH,
+) {
+  const rows = await db
+    .select({ symbol: symbolData.symbol })
+    .from(symbolData)
+    .where(and(tier, olderThan(symbolData.statsAt, maxAgeMs, now), notFailing(symbolData.errorAt, now)))
+    .orderBy(sql`${symbolData.statsAt} asc nulls first`)
+    .limit(limit);
+  return rows.map((r) => r.symbol);
+}
+
 export function jobs(db: Database, logger: Logger, defer: (p: Promise<unknown>) => void): Job[] {
   const market = new EdgeMarket(db, defer);
-  const olderThan = (col: PgColumn, ms: number, now: Date) => or(isNull(col), lt(col, new Date(now.getTime() - ms)));
-  const notFailing = (col: PgColumn, now: Date) => or(isNull(col), lt(col, new Date(now.getTime() - ERROR_BACKOFF_MS)));
+  const quotesDue = async (tier: SQL | undefined, maxAge: number, now: Date) => {
+    const due = await dueForQuotes(db, tier, maxAge, now);
+    return due.length ? { refreshed: await refreshQuotes(db, due), due: due.length } : null;
+  };
+  const statsDue = async (tier: SQL | undefined, maxAge: number, now: Date) => {
+    const due = await dueForStats(db, tier, maxAge, now);
+    return due.length ? refreshStats(db, due) : null;
+  };
 
   return [
     {
@@ -77,46 +131,20 @@ export function jobs(db: Database, logger: Logger, defer: (p: Promise<unknown>) 
     },
     {
       name: 'quotes',
-      async run(now) {
-        const maxAge = marketsOpen(now) ? 10 * MINUTE : HOUR;
-        const due = await db
-          .select({ symbol: symbolData.symbol })
-          .from(symbolData)
-          .where(and(isNotNull(symbolData.currency), olderThan(symbolData.quoteAt, maxAge, now)))
-          .orderBy(sql`${symbolData.quoteAt} asc nulls first`)
-          .limit(100);
-        if (due.length === 0) return null;
-        return {
-          refreshed: await refreshQuotes(
-            db,
-            due.map((r) => r.symbol),
-          ),
-          due: due.length,
-        };
-      },
+      run: (now) => quotesDue(prioritySymbols(), marketsOpen(now) ? 10 * MINUTE : HOUR, now),
     },
     {
       name: 'stocks',
       async run(now) {
-        // New curated symbols get a row, so the queue below picks them up.
-        const curated = allSymbols();
+        // New listed symbols (curated or index members) get a row, so the queues pick them up.
+        const listed = allSymbols();
         const state = await getState<{ seeded?: string }>(db, 'stocks');
-        const version = String(curated.length) + curated.join().length;
+        const version = String(listed.length) + listed.join().length;
         if (state.seeded !== version) {
-          await track(db, curated);
+          await track(db, listed);
           await setState(db, 'stocks', { seeded: version });
         }
-        const due = await db
-          .select({ symbol: symbolData.symbol })
-          .from(symbolData)
-          .where(and(olderThan(symbolData.statsAt, STATS_MAX_AGE_MS, now), notFailing(symbolData.errorAt, now)))
-          .orderBy(sql`${symbolData.statsAt} asc nulls first`)
-          .limit(STATS_BATCH);
-        if (due.length === 0) return null;
-        return refreshStats(
-          db,
-          due.map((r) => r.symbol),
-        );
+        return statsDue(prioritySymbols(), STATS_MAX_AGE_MS, now);
       },
     },
     {
@@ -159,6 +187,15 @@ export function jobs(db: Database, logger: Logger, defer: (p: Promise<unknown>) 
           due.map((r) => r.code),
         );
       },
+    },
+    // Last, so loading about a thousand index members never holds up the jobs above.
+    {
+      name: 'index-quotes',
+      run: (now) => quotesDue(undefined, marketsOpen(now) ? HOUR : 6 * HOUR, now),
+    },
+    {
+      name: 'index-stocks',
+      run: (now) => statsDue(undefined, INDEX_STATS_MAX_AGE_MS, now),
     },
   ];
 }

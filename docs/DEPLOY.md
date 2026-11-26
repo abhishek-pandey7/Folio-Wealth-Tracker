@@ -65,7 +65,7 @@ Anyone without a session browses a sample portfolio as the user `demo@folio.inva
 
 ## 6. First data
 
-From an empty database, all 141 curated symbols and the fund catalogue load within about an hour, and every fund's statistics within about two. Anything you open before then loads on demand, a few instruments per request.
+From an empty database, all 141 curated symbols and the fund catalogue load within about an hour, and every fund's statistics within about two. The 892 other Nifty 500 and S&P 500 members fill in over roughly the next 5 to 10 hours, in whatever minutes the other jobs leave free. Anything you open before then loads on demand, a few instruments per request.
 
 Watch the jobs with `npx wrangler tail folio-cron` (each run logs `{"job": ..., "refreshed": ...}`), or query `select name, report from job_state;`.
 

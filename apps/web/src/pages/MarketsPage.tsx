@@ -12,7 +12,7 @@ import { useScreen, useUniverses } from '../lib/queries.js';
 const REGIONS = { India: 'in-large', US: 'us-large' } as const;
 type Region = keyof typeof REGIONS;
 
-const TOP_UNIVERSES = ['in-large', 'in-mid', 'us-large', 'in-etf', 'us-etf'] as const;
+const TOP_UNIVERSES = ['in-large', 'in-mid', 'in-nifty500', 'us-large', 'us-sp500', 'in-etf', 'us-etf'] as const;
 const TOP_PERIODS = ['1m', '3m', '6m', '1y', '3y', '5y'] as const satisfies readonly Period[];
 
 export function MarketsPage() {

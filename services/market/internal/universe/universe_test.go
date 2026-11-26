@@ -1,6 +1,7 @@
 package universe_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -48,6 +49,46 @@ func TestSectorUniversesAreDerivedFromMembers(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(it.Symbols(), ","), "PERSISTENT.NS") {
 		t.Error("India IT should include mid caps too")
+	}
+}
+
+func TestIndexListsAreIncluded(t *testing.T) {
+	nifty, ok := universe.Get("in-nifty500")
+	if !ok || nifty.Count < 480 {
+		t.Fatalf("Nifty 500 missing or short: %+v", nifty.Count)
+	}
+	sp, ok := universe.Get("us-sp500")
+	if !ok || sp.Count < 480 {
+		t.Fatalf("S&P 500 missing or short: %+v", sp.Count)
+	}
+	if !slices.Contains(sp.Symbols(), "BRK-B") {
+		t.Error("S&P 500 should use Yahoo's BRK-B spelling")
+	}
+	if !slices.Contains(nifty.Symbols(), "RELIANCE.NS") {
+		t.Error("Nifty 500 symbols should carry the .NS suffix")
+	}
+}
+
+func TestCuratedSectorsWinOverIndexSectors(t *testing.T) {
+	// GICS files Alphabet under Communication Services; the curated list says technology.
+	if got := universe.SectorOf("GOOGL"); got != universe.SectorTech.Name() {
+		t.Errorf("GOOGL sector = %q", got)
+	}
+	it, _ := universe.Get("in-sector-it")
+	if !slices.Contains(it.Symbols(), "ZENSARTECH.NS") {
+		t.Error("India IT should include Nifty 500 members that are not curated")
+	}
+}
+
+func TestWarmSetsSplitTheListedSymbols(t *testing.T) {
+	curated, index := universe.CuratedSymbols(), universe.IndexOnlySymbols()
+	if len(curated)+len(index) != len(universe.AllSymbols()) {
+		t.Errorf("curated %d + index-only %d != all %d", len(curated), len(index), len(universe.AllSymbols()))
+	}
+	for _, s := range index {
+		if slices.Contains(curated, s) {
+			t.Errorf("%s is both curated and index-only", s)
+		}
 	}
 }
 

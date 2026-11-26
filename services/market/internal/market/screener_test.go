@@ -159,8 +159,15 @@ func TestWarmersRefreshEverything(t *testing.T) {
 	svc := newMockService()
 
 	stocks := svc.WarmStocks(t.Context())
-	if stocks.Failed != 0 || stocks.Refreshed != len(universe.AllSymbols()) {
-		t.Errorf("stock warm = %+v, want all %d symbols refreshed", stocks, len(universe.AllSymbols()))
+	if stocks.Failed != 0 || stocks.Refreshed != len(universe.CuratedSymbols()) {
+		t.Errorf("stock warm = %+v, want all %d curated symbols refreshed", stocks, len(universe.CuratedSymbols()))
+	}
+	indexes := svc.WarmIndexes(t.Context())
+	if indexes.Failed != 0 || indexes.Refreshed != len(universe.IndexOnlySymbols()) {
+		t.Errorf("index warm = %+v, want all %d index-only symbols refreshed", indexes, len(universe.IndexOnlySymbols()))
+	}
+	if stocks.Refreshed+indexes.Refreshed != len(universe.AllSymbols()) {
+		t.Error("the two warmers together should cover every listed symbol")
 	}
 	funds := svc.WarmFunds(t.Context())
 	if funds.Failed != 0 || funds.Refreshed == 0 {

@@ -10,4 +10,4 @@ chrome --headless=new --hide-scrollbars --force-device-scale-factor=2 \
   --screenshot=docs/images/<name>.png file:///<repo>/docs/diagrams/<name>.svg
 ```
 
-Heights: architecture-cloudflare 640, architecture-local 640, cron-jobs 620, request-flow 660, data-model 1000.
+Heights: architecture-cloudflare 640, architecture-local 640, cron-jobs 752, request-flow 660, data-model 1000.

@@ -15,7 +15,7 @@ Folio values NSE and US stocks, ETFs and Indian mutual funds live, converts betw
 | | |
 | --- | --- |
 | ![Goals and SIPs](docs/images/goals.png) | ![Discover: ranked stocks](docs/images/discover.png) |
-| **Goals and SIPs.** Each goal shows progress from linked holdings and SIPs, and the monthly amount needed at an assumed return. SIPs started in the past are backfilled at each instalment date's real NAV. | **Discover.** 141 curated stocks, ETFs and indices in 19 lists (India and US, by size and sector), ranked by return over any period, volatility, worst drop, return per unit of risk, or up months. |
+| **Goals and SIPs.** Each goal shows progress from linked holdings and SIPs, and the monthly amount needed at an assumed return. SIPs started in the past are backfilled at each instalment date's real NAV. | **Discover.** 1,033 stocks, ETFs and indices in 24 lists: the whole Nifty 500 and S&P 500 alongside curated large and mid caps, ETFs and indices, by size and sector, ranked by return over any period, volatility, worst drop, return per unit of risk, or up months. |
 | ![Stock page](docs/images/stock.png) | ![Mutual funds](docs/images/funds.png) |
 | **Stock pages.** Price history, returns from one week to five years (3y and 5y annualized), risk statistics with plain-language explanations, and your own position. | **Mutual funds.** About 380 Direct Growth schemes in 11 SEBI categories from AMFI's official NAV file, ranked the same way. |
 
@@ -35,7 +35,7 @@ The app runs in two shapes that share all business logic (`packages/core`).
 
 Workers get 10 ms of CPU per invocation and keep no memory between requests, so the Go gateway's caches and background warmers became Postgres tables and one cron trigger that runs a single small job each minute:
 
-![The six scheduled jobs in priority order, with when each has work and what one run does](docs/images/cron-jobs.png)
+![The eight scheduled jobs in priority order, with when each has work and what one run does](docs/images/cron-jobs.png)
 
 Every decision, the alternatives that were rejected, and measured numbers are in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Deploying it yourself: [`docs/DEPLOY.md`](docs/DEPLOY.md). Performance and quality measurements: [`docs/KPIS.md`](docs/KPIS.md).
 

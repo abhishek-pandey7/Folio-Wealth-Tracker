@@ -612,11 +612,23 @@ func (s *Service) recordWarm(name string, r WarmReport) {
 // WarmStocks refreshes statistics for every curated symbol, so screens are
 // served from cache. Refresh (not Get) renews entries before they expire.
 func (s *Service) WarmStocks(ctx context.Context) WarmReport {
+	return s.warmSymbols(ctx, "stocks", universe.CuratedSymbols())
+}
+
+// WarmIndexes refreshes the Nifty 500 and S&P 500 members that are not
+// curated. It runs daily: about a thousand symbols at the upstream rate limit
+// take several minutes, and between runs the stats cache serves them stale
+// while it revalidates the ones a screen asks for.
+func (s *Service) WarmIndexes(ctx context.Context) WarmReport {
+	return s.warmSymbols(ctx, "indexes", universe.IndexOnlySymbols())
+}
+
+func (s *Service) warmSymbols(ctx context.Context, name string, symbols []string) WarmReport {
 	report := WarmReport{Started: time.Now()}
 	var mu sync.Mutex
 	var g errgroup.Group
 	g.SetLimit(4) // leave headroom in the upstream rate limit for user requests
-	for _, sym := range universe.AllSymbols() {
+	for _, sym := range symbols {
 		g.Go(func() error {
 			_, err := s.statsCache.Refresh(ctx, sym, s.loadStats(sym))
 			if err == nil {
@@ -635,7 +647,7 @@ func (s *Service) WarmStocks(ctx context.Context) WarmReport {
 	}
 	_ = g.Wait()
 	report.DurationMs = time.Since(report.Started).Milliseconds()
-	s.recordWarm("stocks", report)
+	s.recordWarm(name, report)
 	return report
 }
 

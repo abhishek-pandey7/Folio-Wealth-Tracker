@@ -90,12 +90,34 @@ export function DiscoverPage() {
         ) : (
           <>
             <ScreenTable rows={screen.data.rows} period={period} sortState={{ sort, order, onSort }} rank />
-            {Object.keys(screen.data.unavailable).length > 0 && (
-              <p className="footnote">Could not load: {Object.keys(screen.data.unavailable).join(', ')}</p>
+            {screen.data.total > screen.data.rows.length && (
+              <p className="footnote">
+                Showing the top {screen.data.rows.length} of {screen.data.total}. Change the order or the column to see
+                others.
+              </p>
             )}
+            <Unavailable unavailable={screen.data.unavailable} />
           </>
         )}
       </section>
     </div>
+  );
+}
+
+/**
+ * Symbols a screen could not rank. A newly added list loads over a few hours,
+ * so "still loading" is counted rather than listed; real failures are named.
+ */
+function Unavailable({ unavailable }: { unavailable: Record<string, string> }) {
+  const entries = Object.entries(unavailable);
+  if (entries.length === 0) return null;
+  const loading = entries.filter(([, reason]) => /loading|not loaded/i.test(reason)).length;
+  const failed = entries.filter(([, reason]) => !/loading|not loaded/i.test(reason)).map(([symbol]) => symbol);
+  return (
+    <p className="footnote">
+      {loading > 0 && `${loading} more ${loading === 1 ? 'is' : 'are'} still loading; check back in a few hours. `}
+      {failed.length > 0 &&
+        `Could not load: ${failed.slice(0, 12).join(', ')}${failed.length > 12 ? ` and ${failed.length - 12} more` : ''}.`}
+    </p>
   );
 }
