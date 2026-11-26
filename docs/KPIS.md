@@ -17,7 +17,7 @@ Measured, not estimated. Every figure below comes from a run on 2026-10-20 and c
 | TypeScript tests | **95** (54 shared, 41 API), including **26 against a real Postgres** |
 | CI per PR | 2 parallel jobs, **45 s** (TypeScript) and **66 s** (Go with race detector) |
 | Gateway container image | **17.7 MB** (distroless, non-root) |
-| Market coverage | **141** stocks, ETFs and indices in **19** categories; **380** mutual funds in **11** SEBI categories |
+| Market coverage | **1,033** stocks, ETFs and indices in **24** categories (the Nifty 500 and S&P 500 plus 141 curated); **380** mutual funds in **11** SEBI categories |
 | Delivery | **15** reviewed PRs, all CI-gated |
 
 ## Performance
@@ -106,7 +106,7 @@ Bugs caught by tests before they shipped, each with a regression test:
 
 ## Resume-ready lines
 
-- Built a full-stack personal portfolio manager (React, NestJS, Go, PostgreSQL) covering 141 Indian and US stocks and ETFs and 380 mutual funds across 19 stock and 11 fund categories, with live data from 4 public sources.
+- Built a full-stack personal portfolio manager (React, NestJS, Go, PostgreSQL) covering 1,033 Indian and US stocks, ETFs and indices (the full Nifty 500 and S&P 500) and 380 mutual funds across 24 stock and 11 fund categories, with live data from 4 public sources.
 - Load-tested the Go market-data gateway, traced a 9.9 s p90 stall to rate-limited cache refreshes, and fixed it with stale-while-revalidate and cache pre-warming: throughput up ~100× (7 to 713 req/s), p99 down to 224 ms, 99.99% of 1.6M lookups served from memory.
 - Designed a ledger-based portfolio engine (FIFO lots, realized gains, XIRR validated against Excel) that rejects impossible histories on write, using per-account row locks to prevent race conditions.
 - Automated SIP tracking that backfills years of instalments at historical NAVs in under a second, idempotent through a database unique constraint.
