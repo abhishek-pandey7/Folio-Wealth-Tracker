@@ -26,10 +26,12 @@ import { eq } from 'drizzle-orm';
 import { isoDate, toDate } from './analytics.js';
 import { type CachePolicy, cached, type Defer, HOUR, MINUTE } from './cache.js';
 import { activeInCategory, type CatalogState, FUNDS_BATCH, readFunds, refreshFunds } from './funds.js';
+import { marketOf, marketOpen } from './hours.js';
 import * as mfapi from './mfapi.js';
 import { MAX_LIST, parseScreen, rank, type ScreenParams } from './screen.js';
 import {
   readSymbols,
+  refreshQuotes,
   refreshStats,
   STATS_BATCH,
   type SymbolRow,
@@ -44,6 +46,15 @@ import * as yahoo from './yahoo.js';
 const DAY_MS = 86_400_000;
 /** A quote older than this is refreshed before being served alone (the quote job runs every 10 minutes). */
 const QUOTE_FRESH_MS = 15 * MINUTE;
+/**
+ * While its market is open, a quote someone is looking at (a stock page, the
+ * portfolio, starred stocks, the index strip) is refreshed once it is older
+ * than this. The refresh runs after the response, so pages stay fast and the
+ * next poll shows the new price.
+ */
+const LIVE_QUOTE_MS = MINUTE;
+/** At most this many symbols per request are refreshed in the background: five Yahoo calls. */
+const MAX_LIVE_SYMBOLS = 100;
 /** Quotes loaded inline per request, one small chart call each (a request may make 50 upstream calls). */
 const INLINE_SYMBOLS = 20;
 /** Statistics loaded inline per request: the same CPU budget as a job run. The cron job loads the rest. */
@@ -105,6 +116,7 @@ export class EdgeMarket implements MarketData {
   constructor(
     private readonly db: Database,
     private readonly defer: Defer,
+    private readonly now: () => Date = () => new Date(),
   ) {}
 
   // Stocks.
@@ -112,7 +124,10 @@ export class EdgeMarket implements MarketData {
   async quote(rawSymbol: string): Promise<Quote> {
     const symbol = parseSymbol(rawSymbol);
     const row = (await readSymbols(this.db, [symbol])).get(symbol);
-    if (row?.quote && row.quoteAt && Date.now() - row.quoteAt.getTime() < QUOTE_FRESH_MS) return row.quote;
+    if (row?.quote && row.quoteAt && this.now().getTime() - row.quoteAt.getTime() < QUOTE_FRESH_MS) {
+      this.refreshLive([row]);
+      return row.quote;
+    }
     try {
       const chart = await yahoo.chart(symbol);
       const quote = { ...chart.quote, symbol };
@@ -131,6 +146,7 @@ export class EdgeMarket implements MarketData {
     const errors: Record<string, string> = {};
     const symbols = this.parseList(rawSymbols, errors);
     const rows = await readSymbols(this.db, symbols);
+    this.refreshLive([...rows.values()]);
     const missing = symbols.filter((s) => !rows.get(s)?.quote);
     const loaded = await Promise.all(
       missing.slice(0, INLINE_SYMBOLS).map((s) =>
@@ -242,10 +258,27 @@ export class EdgeMarket implements MarketData {
   /** Portfolio pricing: statistics plus the live quote for each symbol held. */
   async priceSymbols(symbols: string[]): Promise<ScreenRow[]> {
     const rows = await this.ensureStats(symbols);
+    this.refreshLive([...rows.values()]);
     return symbols.flatMap((s) => {
       const row = rows.get(s);
       return row?.stats ? [withQuote(row.stats, row.quote)] : [];
     });
+  }
+
+  /**
+   * Schedules a refresh, after the response, of the quotes among these rows
+   * that are over a minute old while their market is open. Rows without an
+   * identity yet are left to the inline and scheduled loaders.
+   */
+  private refreshLive(rows: SymbolRow[]): void {
+    const now = this.now();
+    const stale = rows
+      .filter((r) => r.currency && marketOpen(marketOf(r.symbol), now))
+      .filter((r) => !r.quoteAt || now.getTime() - r.quoteAt.getTime() > LIVE_QUOTE_MS)
+      .map((r) => r.symbol)
+      .slice(0, MAX_LIVE_SYMBOLS);
+    if (stale.length === 0) return;
+    this.defer(refreshQuotes(this.db, stale).catch(() => 0)); // the next poll or the cron job will retry
   }
 
   /** Rows for these symbols, loading statistics inline for those that have none yet. */

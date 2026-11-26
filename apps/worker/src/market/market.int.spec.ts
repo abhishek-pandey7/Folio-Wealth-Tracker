@@ -1,5 +1,5 @@
 import { type Database, schema } from '@folio/core';
-import { inArray } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -150,6 +150,55 @@ describe.skipIf(!databaseUrl)('edge market data (Postgres)', () => {
     const stats = await market.stats(SLOW);
     expect(stats.metrics.returns['5y']).toBeCloseTo(5, 0);
     expect(fetches).toBe(before);
+  });
+
+  it('refreshes quotes someone is looking at after the response, only while their market is open', async () => {
+    const deferred: Promise<unknown>[] = [];
+    const at = (iso: string) =>
+      new EdgeMarket(
+        db,
+        (p) => void deferred.push(p),
+        () => new Date(iso),
+      );
+    const quotedAgo = async (iso: string, ms: number) => {
+      await db
+        .update(schema.symbolData)
+        .set({ quoteAt: new Date(Date.parse(iso) - ms) })
+        .where(inArray(schema.symbolData.symbol, [FAST, SLOW]));
+    };
+    const OPEN = '2026-11-26T05:00:00Z'; // Thursday 10:30 IST: NSE is trading
+    const CLOSED = '2026-11-26T12:00:00Z'; // 17:30 IST: NSE has closed, NYSE has not opened
+
+    // Market closed: the stored quote is served and nothing is fetched.
+    await quotedAgo(CLOSED, 5 * 60_000);
+    let before = fetches;
+    await at(CLOSED).quote(FAST);
+    expect(deferred).toHaveLength(0);
+    expect(fetches).toBe(before);
+
+    // Under a minute old: still nothing to do.
+    await quotedAgo(OPEN, 30_000);
+    await at(OPEN).quote(FAST);
+    expect(deferred).toHaveLength(0);
+
+    // Five minutes old while NSE trades: served at once, refreshed after the response.
+    await quotedAgo(OPEN, 5 * 60_000);
+    const served = await at(OPEN).quote(FAST);
+    expect(served.price).toBeDefined();
+    expect(deferred).toHaveLength(1);
+    before = fetches;
+    await Promise.all(deferred.splice(0));
+    expect(fetches).toBe(before + 1);
+    const [row] = await db.select().from(schema.symbolData).where(eq(schema.symbolData.symbol, FAST));
+    expect(row?.quoteAt?.getTime()).toBeGreaterThan(Date.parse(OPEN));
+
+    // A portfolio's holdings are refreshed together, twenty to a call.
+    await quotedAgo(OPEN, 5 * 60_000);
+    await at(OPEN).priceSymbols([FAST, SLOW]);
+    expect(deferred).toHaveLength(1);
+    before = fetches;
+    await Promise.all(deferred.splice(0));
+    expect(fetches).toBe(before + 1);
   });
 
   it('records an unknown symbol once instead of retrying it on every request', async () => {

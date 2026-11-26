@@ -22,7 +22,8 @@ export function usePortfolio(accountId?: string) {
   return useQuery({
     queryKey: ['portfolio', accountId ?? 'all'],
     queryFn: () => getJson(`/api/portfolio${qs(accountId)}`, PortfolioSummarySchema),
-    refetchInterval: 60_000,
+    // Each poll also has the server refresh quotes over a minute old, so prices stay about a minute behind.
+    refetchInterval: 30_000,
   });
 }
 
