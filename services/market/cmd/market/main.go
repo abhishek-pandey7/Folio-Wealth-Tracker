@@ -25,9 +25,14 @@ import (
 
 // Warm intervals sit inside the cache TTLs (stock stats 1h, fund stats 12h),
 // so screens are always served from cache rather than waiting on upstreams.
+// Index members are the exception: they are warmed daily, inside the stats
+// cache's 48h stale window, and start after a delay so that restarts in watch
+// mode do not each send a thousand symbols to Yahoo.
 const (
 	stockWarmInterval = 45 * time.Minute
 	fundWarmInterval  = 6 * time.Hour
+	indexWarmInterval = 24 * time.Hour
+	indexWarmDelay    = 10 * time.Minute
 )
 
 func main() {
@@ -63,6 +68,14 @@ func main() {
 	if cfg.Warm {
 		go market.RunWarmer(ctx, logger, "stocks", stockWarmInterval, svc.WarmStocks)
 		go market.RunWarmer(ctx, logger, "funds", fundWarmInterval, svc.WarmFunds)
+		go func() {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(indexWarmDelay):
+			}
+			market.RunWarmer(ctx, logger, "indexes", indexWarmInterval, svc.WarmIndexes)
+		}()
 	}
 
 	<-ctx.Done()
