@@ -3,6 +3,7 @@ import { PlusIcon, TrashIcon, WalletIcon } from '@phosphor-icons/react';
 import { type FormEvent, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { AllocationBar } from '../components/AllocationBar.js';
+import { BrokersPanel } from '../components/BrokersPanel.js';
 import { shortName } from '../components/FundTable.js';
 import { Segmented } from '../components/Segmented.js';
 import { TransactionDialog } from '../components/TransactionDialog.js';
@@ -50,6 +51,7 @@ export function PortfolioPage() {
           </p>
           <AccountForm />
         </section>
+        <BrokersPanel />
       </div>
     );
   }
@@ -57,13 +59,18 @@ export function PortfolioPage() {
   const options = ['all', ...(accounts.data ?? []).map((a) => a.id)];
   const names = new Map((accounts.data ?? []).map((a) => [a.id, a.name]));
   const summary = portfolio.data;
+  const anySynced = (accounts.data ?? []).some((a) => a.syncedFrom);
 
   return (
     <div className="page">
       <header className="page-head row">
         <div>
           <h1>Portfolio</h1>
-          <p className="muted">Live value in rupees, from every buy, sell and dividend you have recorded.</p>
+          <p className="muted">
+            {anySynced
+              ? 'Live value in rupees, from your brokers and the trades you have recorded.'
+              : 'Live value in rupees, from every buy, sell and dividend you have recorded.'}
+          </p>
         </div>
         <button type="button" className="button" onClick={() => setDialogOpen(true)}>
           <PlusIcon size={16} weight="bold" /> Add transaction
@@ -83,7 +90,7 @@ export function PortfolioPage() {
       {portfolio.error && <p className="inline-error">{portfolio.error.message}</p>}
       {portfolio.isPending || !summary ? (
         <SkeletonRows count={5} />
-      ) : summary.transactionCount === 0 ? (
+      ) : summary.transactionCount === 0 && summary.holdings.length === 0 ? (
         <section className="panel empty-state">
           <p className="strong">No transactions yet</p>
           <p className="muted">
@@ -103,6 +110,8 @@ export function PortfolioPage() {
           <Holdings holdings={summary.holdings} />
         </>
       )}
+
+      <BrokersPanel />
 
       <div className="grid-2">
         <Transactions accountId={filter} />
@@ -138,7 +147,9 @@ function Totals({ summary }: { summary: PortfolioSummary }) {
           XIRR
         </span>
         <span className={`figure ${tone(t.xirr)}`}>{t.xirr === null ? 'n/a' : pct(t.xirr * 100)}</span>
-        <span className="muted small">Per year, timing-weighted</span>
+        <span className="muted small">
+          {summary.holdings.some((h) => h.synced) ? 'Recorded trades only' : 'Per year, timing-weighted'}
+        </span>
       </div>
     </section>
   );
@@ -284,7 +295,12 @@ function Holdings({ holdings }: { holdings: Holding[] }) {
                     <span className="row-sub">{pct(h.unrealizedPct)}</span>
                   </td>
                   <td className={`num mono ${tone(h.dayChangePct)}`}>{pct(h.dayChangePct)}</td>
-                  <td className={`num mono ${tone(h.xirr)}`}>{h.xirr === null ? 'n/a' : pct(h.xirr * 100, 1)}</td>
+                  <td
+                    className={`num mono ${tone(h.xirr)}`}
+                    title={h.synced ? 'Synced from a broker, which gives no trade dates' : undefined}
+                  >
+                    {h.xirr === null ? 'n/a' : pct(h.xirr * 100, 1)}
+                  </td>
                   <td className="num mono">{h.weight.toFixed(1)}%</td>
                 </tr>
               );
@@ -368,7 +384,7 @@ function Accounts({ accounts }: { accounts: Account[] }) {
             <span className="tx-main">
               <span className="strong">{a.name}</span>
               <span className="row-sub">
-                {a.broker ?? 'No broker set'}, {a.currency}
+                {a.syncedFrom ? 'Synced from broker, read-only' : (a.broker ?? 'No broker set')}, {a.currency}
               </span>
             </span>
             <button
@@ -377,7 +393,10 @@ function Accounts({ accounts }: { accounts: Account[] }) {
               aria-label={`Delete account ${a.name}`}
               disabled={remove.isPending}
               onClick={() => {
-                if (window.confirm(`Delete ${a.name} and every transaction in it? This cannot be undone.`)) {
+                const message = a.syncedFrom
+                  ? `Remove ${a.name} and its synced holdings from Folio? Nothing changes at the broker.`
+                  : `Delete ${a.name} and every transaction in it? This cannot be undone.`;
+                if (window.confirm(message)) {
                   remove.mutate(a.id);
                 }
               }}
