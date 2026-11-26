@@ -10,6 +10,7 @@ import { DEMO_SYMBOLS, demoSeeded, resetDemo } from './demo.js';
 import { HOUR, MINUTE } from './market/cache.js';
 import { CATALOG_JOB, EdgeMarket } from './market/edge.js';
 import { type CatalogState, catalogStep, FUNDS_BATCH, refreshFunds } from './market/funds.js';
+import { marketsOpen } from './market/hours.js';
 import { refreshQuotes, refreshStats, STATS_BATCH, track } from './market/stocks.js';
 import { allSymbols, curatedSymbols } from './market/universe.js';
 
@@ -30,14 +31,6 @@ const SIP_HOUR_UTC = 19;
 /** The public demo is put back at 02:30 IST, when nobody is likely to be mid-visit. */
 const DEMO_RESET_HOUR_UTC = 21;
 const CATALOG_HOUR_UTC = 18;
-
-/** Either exchange trading (NSE 03:45–10:00 UTC, NYSE 13:30–20:00 UTC on weekdays) means quotes move. */
-export function marketsOpen(now: Date): boolean {
-  const day = now.getUTCDay();
-  if (day === 0 || day === 6) return false;
-  const minutes = now.getUTCHours() * 60 + now.getUTCMinutes();
-  return (minutes >= 225 && minutes <= 600) || (minutes >= 810 && minutes <= 1200);
-}
 
 interface Job {
   name: string;
