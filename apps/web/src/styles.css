@@ -1618,3 +1618,21 @@ a.index-card:hover {
     width: 100%;
   }
 }
+
+/* Broker sync */
+.warn-text {
+  color: var(--warn-text);
+}
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}

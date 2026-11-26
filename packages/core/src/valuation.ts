@@ -14,7 +14,7 @@ import type { Database } from './database.js';
 import { type Instrument, schemeCodeOf } from './instruments.js';
 import { consoleLogger, type Logger } from './logger.js';
 import type { MarketData } from './market.js';
-import { instruments, portfolios, transactions } from './schema.js';
+import { brokerHoldings, instruments, portfolios, transactions } from './schema.js';
 
 const ASSET_CLASS_LABELS: Record<string, string> = {
   equity: 'Stocks',
@@ -36,6 +36,8 @@ interface LivePrice {
 interface Aggregate {
   instrument: Instrument;
   quantity: Decimal;
+  /** Units that come from a broker sync rather than recorded trades. */
+  syncedQuantity: Decimal;
   costBasis: Decimal;
   realized: Decimal;
   dividends: Decimal;
@@ -50,8 +52,12 @@ const round2 = (n: number | null) => (n === null ? null : Math.round(n * 100) / 
 const today = () => new Date().toISOString().slice(0, 10);
 
 /**
- * Values the portfolio: replays each account's ledger, merges holdings of the
- * same instrument across accounts, prices them live and converts to rupees.
+ * Values the portfolio: replays each account's ledger, adds holdings synced
+ * from brokers, merges holdings of the same instrument across accounts,
+ * prices them live and converts to rupees.
+ *
+ * Synced holdings come with an average cost but no trade dates, so they have
+ * no XIRR, and the portfolio XIRR covers recorded trades only.
  *
  * Known simplification: USD amounts convert at today's USD/INR rate, so the
  * rupee cost of a US holding moves with the exchange rate.
@@ -96,6 +102,7 @@ export class ValuationService {
       const agg = aggregates.get(instrument.id) ?? {
         instrument,
         quantity: zero(),
+        syncedQuantity: zero(),
         costBasis: zero(),
         realized: zero(),
         dividends: zero(),
@@ -118,8 +125,40 @@ export class ValuationService {
       }
     }
 
+    // Broker snapshots: whatever the broker last reported for each synced account.
+    const synced = await this.db
+      .select({ h: brokerHoldings, accountName: portfolios.name, instrument: instruments })
+      .from(brokerHoldings)
+      .innerJoin(portfolios, eq(brokerHoldings.portfolioId, portfolios.id))
+      .innerJoin(instruments, eq(brokerHoldings.instrumentId, instruments.id))
+      .where(and(eq(portfolios.userId, userId), accountId ? eq(portfolios.id, accountId) : undefined));
+    const brokerPrices = new Map<string, Decimal>();
+    for (const { h, accountName, instrument } of synced) {
+      const agg = aggregates.get(instrument.id) ?? {
+        instrument,
+        quantity: zero(),
+        syncedQuantity: zero(),
+        costBasis: zero(),
+        realized: zero(),
+        dividends: zero(),
+        accounts: new Set<string>(),
+        flows: [],
+      };
+      aggregates.set(instrument.id, agg);
+      const quantity = new Decimal(h.quantity);
+      agg.quantity = agg.quantity.plus(quantity);
+      agg.syncedQuantity = agg.syncedQuantity.plus(quantity);
+      agg.costBasis = agg.costBasis.plus(quantity.times(h.avgCost));
+      agg.accounts.add(accountName);
+      if (h.lastPrice !== null) brokerPrices.set(instrument.symbol, new Decimal(h.lastPrice));
+    }
+
     const open = [...aggregates.values()].filter((a) => a.quantity.greaterThan(0));
     const [prices, usdInr] = await Promise.all([this.prices(open.map((a) => a.instrument)), this.usdInr()]);
+    // Where Folio has no live price, the broker's own last price from the sync beats valuing at cost.
+    for (const [symbol, price] of brokerPrices) {
+      if (!prices.has(symbol)) prices.set(symbol, { price, dayChangePct: null, sector: null });
+    }
     const toInr = (amount: Decimal, currency: string) => (currency === 'USD' ? amount.times(usdInr) : amount);
 
     const asOf = today();
@@ -156,10 +195,19 @@ export class ValuationService {
         realizedInr: money(toInr(a.realized, instrument.currency)),
         dividendsInr: money(toInr(a.dividends, instrument.currency)),
         weight: 0,
-        xirr: live ? round4(xirr([...a.flows, { date: asOf, amount: value }])) : null,
+        xirr: live && a.syncedQuantity.isZero() ? round4(xirr([...a.flows, { date: asOf, amount: value }])) : null,
         priced: Boolean(live),
+        synced: a.syncedQuantity.greaterThan(0),
       };
     });
+
+    // The part of today's value that recorded trades account for, which is what the cash flows can explain.
+    const ledgerValueInr = open.reduce((sum, a) => {
+      const live = prices.get(a.instrument.symbol);
+      const value = toInr(live ? a.quantity.times(live.price) : a.costBasis, a.instrument.currency);
+      const share = a.quantity.minus(a.syncedQuantity).dividedBy(a.quantity);
+      return sum.plus(value.times(share));
+    }, zero());
 
     const totalValue = holdings.reduce((sum, h) => sum.plus(h.valueInr), zero());
     for (const h of holdings) {
@@ -189,10 +237,7 @@ export class ValuationService {
         dividendsInr: money(dividends),
         dayChangeInr: money(dayChange),
         dayChangePct: round2(pctOf(dayChange, totalValue.minus(dayChange))),
-        xirr:
-          totalValue.isZero() && allFlows.length === 0
-            ? null
-            : round4(xirr([...allFlows, { date: asOf, amount: totalValue }])),
+        xirr: allFlows.length === 0 ? null : round4(xirr([...allFlows, { date: asOf, amount: ledgerValueInr }])),
       },
       holdings,
       allocation: {

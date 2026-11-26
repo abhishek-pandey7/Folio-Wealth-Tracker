@@ -1,5 +1,6 @@
 import { Link, Route, Routes } from 'react-router';
 import { TopNav } from './components/TopNav.js';
+import { ConnectPage } from './pages/ConnectPage.js';
 import { DiscoverPage } from './pages/DiscoverPage.js';
 import { FundPage } from './pages/FundPage.js';
 import { FundsPage } from './pages/FundsPage.js';
@@ -25,6 +26,7 @@ export function App() {
           <Route path="/starred" element={<StarredPage />} />
           <Route path="/portfolio" element={<PortfolioPage />} />
           <Route path="/goals" element={<GoalsPage />} />
+          <Route path="/connect/:broker" element={<ConnectPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>

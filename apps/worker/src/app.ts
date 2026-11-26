@@ -9,6 +9,7 @@ import {
   CurrentUserService,
   consoleLogger,
   type Database,
+  ForbiddenError,
   GoalsService,
   InstrumentsService,
   SipsService,
@@ -18,6 +19,9 @@ import {
   WatchlistService,
 } from '@folio/core';
 import {
+  BrokerCompleteSchema,
+  BrokerIdSchema,
+  BrokerStartSchema,
   CreateAccountSchema,
   CreateGoalSchema,
   CreateSipSchema,
@@ -33,6 +37,7 @@ import { type Context, Hono } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { z } from 'zod';
 import { authenticate, signIn, signOut } from './auth.js';
+import { brokersService } from './brokers.js';
 import { connect } from './db.js';
 import { DEMO_EMAIL } from './demo.js';
 import type { Env } from './env.js';
@@ -40,7 +45,7 @@ import type { Defer } from './market/cache.js';
 import { EdgeMarket } from './market/edge.js';
 import { splitList } from './market/screen.js';
 
-function services(db: Database, market: EdgeMarket, email: string) {
+function services(db: Database, market: EdgeMarket, email: string, env: Env) {
   const instruments = new InstrumentsService(db, market);
   const accounts = new AccountsService(db);
   const valuation = new ValuationService(db, market, consoleLogger);
@@ -52,6 +57,7 @@ function services(db: Database, market: EdgeMarket, email: string) {
     sips: new SipsService(db, instruments, market, consoleLogger),
     goals: new GoalsService(db, valuation),
     watchlist: new WatchlistService(db, instruments),
+    brokers: brokersService(db, env),
   };
 }
 
@@ -132,7 +138,7 @@ app.use('*', async (c, next) => {
   const market = new EdgeMarket(db, defer);
   c.set('db', db);
   c.set('market', market);
-  c.set('svc', services(db, market, email));
+  c.set('svc', services(db, market, email, c.env));
   try {
     await next();
   } finally {
@@ -247,6 +253,47 @@ app.put('/goals/:id/holdings', async (c) =>
 );
 app.delete('/goals/:id', async (c) => {
   await c.var.svc.goals.remove(await userId(c), uuid(c.req.param('id')));
+  return c.body(null, 204);
+});
+
+// Brokers: read-only holdings sync, for the owner only. The demo never sees or reaches a broker.
+
+/** How often the portfolio page may trigger a sync of each connected broker. */
+const SYNC_EVERY_MS = 15 * 60_000;
+
+function brokerParam(c: Ctx) {
+  const parsed = BrokerIdSchema.safeParse(c.req.param('broker'));
+  if (!parsed.success) throw new BadRequestError('Unknown broker');
+  return parsed.data;
+}
+
+async function owner(c: Ctx): Promise<string> {
+  if (c.var.mode !== 'owner') throw new ForbiddenError('Sign in to connect a broker');
+  return userId(c);
+}
+
+/** Where brokers send the browser back after login; register this URL in each broker's developer console. */
+const redirectUri = (c: Ctx, broker: string) => `${new URL(c.req.url).origin}/connect/${broker}`;
+
+app.get('/brokers', async (c) =>
+  c.json(c.var.mode === 'owner' ? await c.var.svc.brokers.list(await userId(c)) : { enabled: false, brokers: [] }),
+);
+app.post('/brokers/sync', async (c) => c.json(await c.var.svc.brokers.syncStale(await owner(c), SYNC_EVERY_MS)));
+app.post('/brokers/:broker/start', async (c) => {
+  await owner(c);
+  const broker = brokerParam(c);
+  const { state } = await body(c, BrokerStartSchema);
+  return c.json(await c.var.svc.brokers.startLogin(broker, redirectUri(c, broker), state));
+});
+app.post('/brokers/:broker/complete', async (c) => {
+  const id = await owner(c);
+  const broker = brokerParam(c);
+  const { params, carry } = await body(c, BrokerCompleteSchema);
+  return c.json(await c.var.svc.brokers.completeLogin(id, broker, params, redirectUri(c, broker), carry ?? null));
+});
+app.post('/brokers/:broker/sync', async (c) => c.json(await c.var.svc.brokers.sync(await owner(c), brokerParam(c))));
+app.delete('/brokers/:broker', async (c) => {
+  await c.var.svc.brokers.disconnect(await owner(c), brokerParam(c));
   return c.body(null, 204);
 });
 

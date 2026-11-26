@@ -1,4 +1,4 @@
-import type { FundStats, Quote, SymbolStats } from '@folio/shared';
+import { BROKER_IDS, type FundStats, type Quote, type SymbolStats } from '@folio/shared';
 import {
   type AnyPgColumn,
   date,
@@ -196,6 +196,58 @@ export const goalHoldings = pgTable(
     share: numeric('share', { precision: 5, scale: 4 }).notNull(),
   },
   (t) => [primaryKey({ columns: [t.goalId, t.instrumentId] })],
+);
+
+export const brokerId = pgEnum('broker_id', BROKER_IDS);
+
+/**
+ * A broker the owner has logged in to. Its holdings land in one account
+ * (a row in portfolios) as a snapshot, replaced on every sync. Indian brokers
+ * expire API sessions daily, so after expiry the last snapshot stays visible,
+ * valued at live prices, until the next login.
+ */
+export const brokerConnections = pgTable(
+  'broker_connections',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    broker: brokerId('broker').notNull(),
+    portfolioId: uuid('portfolio_id')
+      .notNull()
+      .unique()
+      .references(() => portfolios.id, { onDelete: 'cascade' }),
+    brokerUserName: text('broker_user_name'),
+    /** AES-GCM ciphertext of the broker session token; null once it has expired or been rejected. */
+    accessToken: text('access_token'),
+    tokenExpiresAt: timestamp('token_expires_at', { withTimezone: true }),
+    /** AES-GCM ciphertext of what renews the session without a login (INDmoney's refresh token), if any. */
+    refresh: text('refresh'),
+    syncedAt: timestamp('synced_at', { withTimezone: true }),
+    syncError: text('sync_error'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('broker_connections_user_broker_idx').on(t.userId, t.broker)],
+);
+
+/** The latest holdings a broker reported for a synced account. */
+export const brokerHoldings = pgTable(
+  'broker_holdings',
+  {
+    portfolioId: uuid('portfolio_id')
+      .notNull()
+      .references(() => portfolios.id, { onDelete: 'cascade' }),
+    instrumentId: uuid('instrument_id')
+      .notNull()
+      .references(() => instruments.id),
+    quantity: quantity('quantity').notNull(),
+    /** Per unit, in the instrument's currency, as the broker reports it. */
+    avgCost: money('avg_cost').notNull(),
+    /** The broker's last price at sync time: a fallback when Folio has no live price for the symbol. */
+    lastPrice: money('last_price'),
+  },
+  (t) => [primaryKey({ columns: [t.portfolioId, t.instrumentId] })],
 );
 
 // Market data for the Workers deployment. Locally the Go gateway keeps these in

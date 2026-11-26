@@ -9,7 +9,7 @@ import {
 } from '@folio/shared';
 import { MagnifyingGlassIcon, XIcon } from '@phosphor-icons/react';
 import { useQuery } from '@tanstack/react-query';
-import { type FormEvent, useEffect, useId, useRef, useState } from 'react';
+import { type FormEvent, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
 import { getJson } from '../api.js';
 import { useDebounced } from '../hooks.js';
@@ -36,7 +36,9 @@ interface Props {
 
 export function TransactionDialog({ open, onClose, initialInstrument, initialAccountId }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const accounts = useAccounts();
+  const accountsQuery = useAccounts();
+  // Synced accounts take their holdings from the broker, so trades are recorded in the others.
+  const accounts = useMemo(() => accountsQuery.data?.filter((a) => !a.syncedFrom), [accountsQuery.data]);
   const create = useCreateTransaction();
 
   const [accountId, setAccountId] = useState(initialAccountId ?? '');
@@ -64,10 +66,11 @@ export function TransactionDialog({ open, onClose, initialInstrument, initialAcc
     }
   }, [open, initialInstrument, initialAccountId, create.reset]);
 
-  // Default to the first account once accounts load.
+  // Default to the first account once accounts load, and away from a synced one.
   useEffect(() => {
-    if (!accountId && accounts.data?.[0]) setAccountId(accounts.data[0].id);
-  }, [accountId, accounts.data]);
+    const first = accounts?.[0];
+    if (first && !accounts.some((a) => a.id === accountId)) setAccountId(first.id);
+  }, [accountId, accounts]);
 
   // Prefill the price with today's quote or NAV; the user can overwrite it.
   const livePrice = useQuery({
@@ -144,14 +147,18 @@ export function TransactionDialog({ open, onClose, initialInstrument, initialAcc
           </button>
         </header>
 
-        {accounts.data?.length === 0 ? (
-          <p className="inline-error">Add a broker account first, from the Accounts panel.</p>
+        {accounts?.length === 0 ? (
+          <p className="inline-error">
+            {accountsQuery.data?.length
+              ? 'Your accounts all sync from brokers. To record trades by hand, add an account from the Accounts panel.'
+              : 'Add a broker account first, from the Accounts panel.'}
+          </p>
         ) : (
           <div className="form-grid">
             <Field label="Account" error={fieldErrors.accountId}>
               {(id) => (
                 <select id={id} value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-                  {accounts.data?.map((a) => (
+                  {accounts?.map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.name}
                       {a.broker ? ` (${a.broker})` : ''}
