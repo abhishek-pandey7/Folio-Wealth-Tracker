@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { BrokerIdSchema } from './brokers.js';
 import { LEDGER_TYPES } from './ledger.js';
 import { AssetClassSchema, CurrencySchema, DecimalStringSchema, SymbolMatchSchema } from './schemas.js';
 
@@ -15,6 +16,8 @@ export const AccountSchema = z.object({
   name: z.string(),
   broker: z.string().nullable(),
   currency: CurrencySchema,
+  /** Set when the account's holdings sync from a broker instead of recorded trades. */
+  syncedFrom: BrokerIdSchema.nullable(),
   createdAt: z.iso.datetime(),
 });
 export type Account = z.infer<typeof AccountSchema>;
@@ -113,6 +116,8 @@ export const HoldingSchema = z.object({
   xirr: z.number().nullable(),
   /** False when no live price was available and the value falls back to cost. */
   priced: z.boolean(),
+  /** True when some of it comes from a broker sync, which has no trade dates (so no XIRR). */
+  synced: z.boolean(),
 });
 export type Holding = z.infer<typeof HoldingSchema>;
 
