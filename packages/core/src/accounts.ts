@@ -1,17 +1,18 @@
-import type { Account, CreateAccount, UpdateAccount } from '@folio/shared';
+import type { Account, BrokerId, CreateAccount, UpdateAccount } from '@folio/shared';
 import { and, asc, eq } from 'drizzle-orm';
 import type { Database } from './database.js';
 import { ConflictError, isUniqueViolation, NotFoundError } from './errors.js';
-import { portfolios } from './schema.js';
+import { brokerConnections, portfolios } from './schema.js';
 
 type AccountRow = typeof portfolios.$inferSelect;
 
-export function toAccount(row: AccountRow): Account {
+export function toAccount(row: AccountRow, syncedFrom: BrokerId | null = null): Account {
   return {
     id: row.id,
     name: row.name,
     broker: row.broker,
     currency: row.currency,
+    syncedFrom,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -22,11 +23,12 @@ export class AccountsService {
 
   async list(userId: string): Promise<Account[]> {
     const rows = await this.db
-      .select()
+      .select({ account: portfolios, syncedFrom: brokerConnections.broker })
       .from(portfolios)
+      .leftJoin(brokerConnections, eq(brokerConnections.portfolioId, portfolios.id))
       .where(eq(portfolios.userId, userId))
       .orderBy(asc(portfolios.createdAt));
-    return rows.map(toAccount);
+    return rows.map((r) => toAccount(r.account, r.syncedFrom));
   }
 
   async get(userId: string, id: string): Promise<AccountRow> {
@@ -58,6 +60,15 @@ export class AccountsService {
     }
   }
 
+  /** The broker an account syncs from, if any: its holdings come from there, not from recorded trades. */
+  async syncedFrom(accountId: string): Promise<BrokerId | null> {
+    const [row] = await this.db
+      .select({ broker: brokerConnections.broker })
+      .from(brokerConnections)
+      .where(eq(brokerConnections.portfolioId, accountId));
+    return row?.broker ?? null;
+  }
+
   async update(userId: string, id: string, input: UpdateAccount): Promise<Account> {
     await this.get(userId, id);
     try {
@@ -72,7 +83,7 @@ export class AccountsService {
       if (!row) {
         throw new NotFoundError('Account not found');
       }
-      return toAccount(row);
+      return toAccount(row, await this.syncedFrom(row.id));
     } catch (error) {
       if (isUniqueViolation(error)) {
         throw new ConflictError(`You already have an account called "${input.name}"`);

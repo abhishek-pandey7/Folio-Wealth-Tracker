@@ -1,4 +1,5 @@
 import {
+  BROKER_NAMES,
   type CreateTransaction,
   cashFlowOf,
   Decimal,
@@ -79,7 +80,13 @@ export class TransactionsService {
     if (input.tradeDate > today()) {
       throw new BadRequestError('The trade date cannot be in the future');
     }
-    await this.accounts.get(userId, input.accountId);
+    const account = await this.accounts.get(userId, input.accountId);
+    const syncedFrom = await this.accounts.syncedFrom(account.id);
+    if (syncedFrom) {
+      throw new BadRequestError(
+        `${account.name} syncs from ${BROKER_NAMES[syncedFrom]}, so its holdings update on their own. Record this trade in another account.`,
+      );
+    }
     const instrument = await this.instruments.resolve(input.instrument);
 
     const id = await this.db.transaction(async (tx) => {
