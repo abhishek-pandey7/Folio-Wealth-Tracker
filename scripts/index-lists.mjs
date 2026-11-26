@@ -163,10 +163,7 @@ const tsGroup = (sector, symbols) => {
   return `  ${sector}: [\n${parts.map((l) => `    '${l}',`).join('\n')}\n  ],`;
 };
 
-const ts = (list) =>
-  list.order
-    .map((s) => tsGroup(s, list.groups.get(s)))
-    .join('\n');
+const ts = (list) => list.order.map((s) => tsGroup(s, list.groups.get(s))).join('\n');
 
 writeFileSync(
   join(root, 'apps/worker/src/market/indexes.ts'),
